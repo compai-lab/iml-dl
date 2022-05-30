@@ -1,1 +1,4 @@
 projects/*
+.*
+data/CX*
+data/M*
