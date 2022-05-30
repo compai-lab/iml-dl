@@ -1,0 +1,90 @@
+name: ConvAE (Cifar-10)
+target_size: &target_size !!python/tuple [64, 64]
+train_batch_size: &tbatch_size 64
+downstream_batch_size: &dbatch_size 100
+checkpoint_path: &checkpoint_path ./projects/dummy_project/weights/cifar-10/
+#
+# Experiment
+#
+experiment:
+  name: Dummy_Project(cifar)
+  task: train
+  weights:  #'./projects/dummy_project/weights/cifar-10/ae/best_model.pt'
+#
+device: gpu
+configurator:
+  module_name: core.Configurator
+  class_name: DLConfigurator
+  params:
+#
+# Model
+#
+model:
+  module_name: model_zoo.convolutional_autoencoders
+  class_name: ConvAutoEncoder
+  params:
+    in_channels: 1
+    channels:
+      - 64
+      - 128
+    strides:
+      - 2
+      - 2
+      - 2
+    out_ch: 1
+    kernel_size: 5
+    norm: batch
+    act: leakyrelu
+    deconv_mode: trans
+#
+# Trainer
+#
+trainer:
+  module_name: projects.dummy_project.Trainer
+  class_name: PTrainer
+  params:
+    input_size: *target_size
+    checkpoint_path: *checkpoint_path
+    nr_epochs: 1
+    # Loss
+    loss:
+      module_name: optim.losses.ln_losses
+      class_name: L1
+      params:
+    optimizer_params:
+      lr: 5.0e-4
+  # Data Loader
+  data_loader:
+# Dog
+    module_name: data.cifar10_loader
+    class_name: Cifar10Loader
+    params:
+      args:
+        target_size: *target_size
+        batch_size: *tbatch_size
+        classes:
+          - 'dog'
+          - 'cat'
+# Downstream tasks
+downstream_tasks:
+  cifar10:
+    module_name: projects.dummy_project.DownstreamEvaluator
+    class_name: PDownstreamEvaluator
+    checkpoint_path: *checkpoint_path
+    data_loader:
+      module_name: data.cifar10_loader
+      class_name: Cifar10Loader
+      params:
+        args:
+          target_size: !!python/tuple [64, 64]
+          batch_size: 8
+      datasets:
+        dog:
+          classes:
+            - 'dog'
+        car:
+          classes:
+            - 'car'
+        truck:
+          classes:
+            - 'truck'
