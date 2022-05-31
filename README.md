@@ -36,5 +36,17 @@ pip3 install torch==1.9.1 torchvision==0.10.1 -f https://download.pytorch.org/wh
 ```
 python core/Main.py --config_path projects/dummy_project/config_cifar10.yaml
 ```
+
+
+5). _Optional_: Clone the projects folder to your own Github:
+
+```
+cd ${TARGET_DIR}/iml-dl/projects
+git init
+git remote add origin $URL_TO_YOUR_REPO
+git branch -M main
+git commit -m "first commit"
+git push -u origin main
+```
 	
 # That's it, enjoy! :rocket:
