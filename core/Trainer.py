@@ -7,7 +7,7 @@ Default class for running training
 import wandb
 import copy
 from dl_utils import *
-from torchsummary import summary
+from torchinfo import summary
 from torch.nn import MSELoss
 from torch.optim.adam import Adam
 from torch.optim.lr_scheduler import ExponentialLR, CosineAnnealingLR, ReduceLROnPlateau
@@ -83,9 +83,9 @@ class Trainer:
         self.log_wandb = log_wandb
 
         wandb.watch(self.model)
-        input_size = (1, self.training_params['input_size'][0],  self.training_params['input_size'][1])
-        print(f'Input size of summery is: {input_size}')
-        summary(model, input_size)
+        # input_size = (1, self.training_params['input_size'][0],  self.training_params['input_size'][1])
+        # print(f'Input size of summery is: {input_size}')
+        # summary(model, input_size)
 
         # Optimizer
         opt_params = training_params['optimizer_params']
