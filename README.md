@@ -37,4 +37,4 @@ pip3 install torch==1.9.1 torchvision==0.10.1 -f https://download.pytorch.org/wh
 python core/Main.py --config_path projects/dummy_project/config_cifar10.yaml
 ```
 	
-# That's it, enjoy!
+# That's it, enjoy! :rocket:
