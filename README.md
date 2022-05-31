@@ -10,7 +10,7 @@ Overview Deep Learning Framework
 0). Set up wandb. (https://docs.wandb.ai/quickstart)
  *  Sign up for a free account at https://wandb.ai/site and then login to your wandb account.
  * Login to wandb with `wandb login`
- * Paste the api-key when prompted. You will find your API key here: https://wandb.ai/authorize. 
+ * Paste the API key when prompted. You will find your API key here: https://wandb.ai/authorize. 
  
 1). Clone iml-dl to desired location 
  * `git clone https://github.com/iml-compai-munich/iml-dl.git *TARGET_DIR*`
