@@ -22,9 +22,15 @@ conda env create -f conda_requirements.yaml
 source activate iml_py308
 ```
 
-3). Install pytorch and cuda
-* *with cuda*: `pip3 install torch==1.9.1+cu111 torchvision==0.10.1+cu111 -f https://download.pytorch.org/whl/torch_stable.html`
-* *w/o cuda*:` pip3 install torch==1.9.1 torchvision==0.10.1 -f https://download.pytorch.org/whl/torch_stable.html`
+3). Install pytorch
+* *with cuda*: 
+```
+pip3 install torch==1.9.1+cu111 torchvision==0.10.1+cu111 -f https://download.pytorch.org/whl/torch_stable.html
+```
+* *w/o cuda*:
+```
+pip3 install torch==1.9.1 torchvision==0.10.1 -f https://download.pytorch.org/whl/torch_stable.html
+```
 
 4). Run the demo script: 
 ```
