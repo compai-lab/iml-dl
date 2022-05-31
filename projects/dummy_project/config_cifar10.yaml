@@ -45,7 +45,7 @@ trainer:
   params:
     input_size: *target_size
     checkpoint_path: *checkpoint_path
-    nr_epochs: 1
+    nr_epochs: 10
     # Loss
     loss:
       module_name: optim.losses.ln_losses
@@ -76,8 +76,8 @@ downstream_tasks:
       class_name: Cifar10Loader
       params:
         args:
-          target_size: !!python/tuple [64, 64]
-          batch_size: 8
+          target_size: *target_size
+          batch_size: *dbatch_size
       datasets:
         dog:
           classes:
