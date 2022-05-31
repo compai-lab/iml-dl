@@ -19,7 +19,7 @@ Overview Deep Learning Framework
 ```
 cd ${TARGET_DIR}/iml-dl
 conda env create -f conda_requirements.yaml
-source activate iml_py308
+source activate iml_py308 *or* conda activate iml_py308
 ```
 
 3). Install pytorch
