@@ -15,10 +15,10 @@ Overview Deep Learning Framework
 1). Clone iml-dl to desired location 
  * `git clone https://github.com/iml-compai-munich/iml-dl.git *TARGET_DIR*`
 
-2). Create a virtual environment with the needed packages (use conda_requirements-osx.yaml for macOS)
+2). Create a virtual environment with the needed packages (use conda_environment-osx.yaml for macOS)
 ```
 cd ${TARGET_DIR}/iml-dl
-conda env create -f conda_requirements.yaml
+conda env create -f conda_environment.yaml
 source activate iml_py308 *or* conda activate iml_py308
 ```
 
