@@ -48,5 +48,7 @@ git branch -M main
 git commit -m "first commit"
 git push -u origin main
 ```
-	
+# Push policy 
+Please create a new branch for your project. Desired changes to the framework can be done on a push-request and code peer-review basis. 
+
 # That's it, enjoy! :rocket:
