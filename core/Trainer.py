@@ -108,6 +108,21 @@ class Trainer:
         self.criterion_rec = loss_class(**(training_params['loss']['params'])) \
             if training_params['loss']['params'] is not None else loss_class()
 
+        if 'regularization' not in training_params['loss']:
+            self.regularization = None
+            self.regularization_weights = None
+        else:
+            self.regularization = []
+            self.regularization_weights = []
+
+            for idx, reg_name in enumerate(self.training_params['loss']['regularization']):
+                reg_config = self.training_params['loss']['regularization'][reg_name]
+                reg_class = import_module(reg_config['module_name'], reg_config['class_name'])
+                reg = reg_class(*reg_config['params']) if 'params' in reg_config.keys() else reg_class()
+                reg_weight = reg_config['weight']
+                self.regularization.append(reg)
+                self.regularization_weights.append(reg_weight)
+
         if 'transformer' not in training_params.keys():
             self.transform = None
         else:
