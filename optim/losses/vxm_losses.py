@@ -35,7 +35,7 @@ class NCC:
     def __init__(self, win=None):
         self.win = win
 
-    def loss(self, y_true, y_pred):
+    def __call__(self, y_true, y_pred):
 
         Ii = y_true
         Ji = y_pred
@@ -95,7 +95,9 @@ class MSE:
     Mean squared error loss.
     """
 
-    def loss(self, y_true, y_pred):
+    def __call__(self, y_true, y_pred):
+        if y_true is None:
+            y_true = torch.zeros_like(y_pred)
         return torch.mean((y_true - y_pred) ** 2)
 
 
@@ -104,7 +106,7 @@ class Dice:
     N-D dice for segmentation
     """
 
-    def loss(self, y_true, y_pred):
+    def __call__(self, y_true, y_pred):
         ndims = len(list(y_pred.size())) - 2
         vol_axes = list(range(2, ndims + 2))
         top = 2 * (y_true * y_pred).sum(dim=vol_axes)
@@ -122,7 +124,7 @@ class Grad:
         self.penalty = penalty
         self.loss_mult = loss_mult
 
-    def loss(self, _, y_pred):
+    def __call__(self, _, y_pred):
         dy = torch.abs(y_pred[:, :, 1:, :, :] - y_pred[:, :, :-1, :, :])
         dx = torch.abs(y_pred[:, :, :, 1:, :] - y_pred[:, :, :, :-1, :])
         dz = torch.abs(y_pred[:, :, :, :, 1:] - y_pred[:, :, :, :, :-1])
@@ -164,3 +166,13 @@ class Grad_2D:
         if self.loss_mult is not None:
             grad *= self.loss_mult
         return grad
+
+class Mean_Stream:
+    """
+    Mean squared error loss.
+    """
+
+    def __call__(self, y_true, y_pred):
+        if y_true is None:
+            y_true = torch.zeros_like(y_pred)
+        return torch.mean((y_true - y_pred) ** 2)
