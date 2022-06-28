@@ -464,6 +464,8 @@ class VoxelMorph_TemplateCreation(nn.Module):
         """
         super().__init__()
 
+        self.bidir = bidir
+
         # ensure correct dimensionality
         ndims = len(inshape)
         assert ndims in [1, 2, 3], 'ndims should be one of 1, 2, or 3. found: %d' % ndims
