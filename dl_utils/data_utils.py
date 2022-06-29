@@ -2,6 +2,52 @@ import csv
 import numpy as np
 import tqdm
 import glob
+import torchio as tio
+
+
+def generate_csv_slices_from_volume(img_path, output_path, dataset_name, shuffle=True, ratio_val_test = 0.1):
+    """
+    Generate Splits and csv with the filename and slice number from SINGLE image
+    @param: img_path: str
+        path to image volume (e.g. .nii or dicom)
+    @param: output_path: str
+        path to output train csv
+    @param: dataset_name:
+        name of the dataset (used for storing to a folder with that name)
+    @param: overfit:
+        number of samples per set (integer, default is None and all are taken into account)
+    """
+    train_path = output_path + dataset_name + '_train.csv'
+    val_path = output_path + dataset_name + '_val.csv'
+    test_path = output_path + dataset_name + '_test.csv'
+
+    np.random.seed(2109)
+    # train_keys = glob.glob(img_path)
+    volume = tio.ScalarImage(img_path)
+
+    num_samples = volume.shape[-1]  # last dimension for time
+
+    ratio_test = int(ratio_val_test * num_samples)  # 10% val; 10% test
+
+    if shuffle:
+        val_keys = np.random.choice(num_samples, 2 * ratio_test, replace=False)
+        test_keys = np.random.choice(val_keys, ratio_test, replace=False)
+    else:
+        val_keys = np.arange(num_samples - 2 * ratio_test, num_samples - 1 * ratio_test)
+        test_keys = np.arange(num_samples - 1 * ratio_test, num_samples)
+
+    train_files, val_files, test_files = [], [], []
+    for scan in range(num_samples):
+        if scan in test_keys:
+            test_files.append([scan])
+        elif scan in val_keys:
+            val_files.append([scan])
+        else:
+            train_files.append([scan])
+    top_row = [img_path]
+    write_csv(train_files, train_path, top_row)
+    write_csv(val_files, val_path, top_row)
+    write_csv(test_files, test_path, top_row)
 
 
 def generate_csv(img_path, output_path, dataset_name):
