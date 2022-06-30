@@ -1,5 +1,68 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+
+class plot_template_development():
+
+    def __init__(self, epochs):
+        self.templates = []
+        self.index = 0
+
+    def __call__(self, template, backup_idx = 10):
+        self.templates.append(template)
+
+        if self.index % backup_idx == 0:
+            print('save')
+
+        self.index += 1
+
+# def save_list_to_figures(list, path):
+
+def detach_for_plot(tensor):
+
+    return tensor.detach().cpu().numpy()
+
+# def plot_aligned()
+
+def plot_with_colorbar(data, ax_handle, title = None, cmap='gray', vmin=0, vmax=1, **kwargs):
+
+    im = ax_handle.imshow(data, cmap = cmap, vmin  = vmin, vmax = vmax, **kwargs)
+
+    if title:
+        ax_handle.title.set_text(title)
+
+    divider = make_axes_locatable(ax_handle)
+    cax = divider.append_axes("right", size="5%", pad=0.05)
+
+    plt.colorbar(im, cax=cax)
+
+    return ax_handle
+
+def plot_template_difference(template_before, template_after, vis_factor = 1):
+
+    template_before_, template_after_ = detach_for_plot(template_before), detach_for_plot(template_after)
+    temp_diff = template_after_ - template_before_
+
+    fig, ax = plt.subplots(1,3)
+
+    # Assuming 2D - cut first two dimensions for plotting
+    plot_with_colorbar(template_before_[0,0,:,:], ax[0])
+    plot_with_colorbar(template_after_[0,0,:,:], ax[1])
+    plot_with_colorbar(temp_diff[0,0,:,:]*vis_factor, ax[2], vmin=-0.1, vmax=0.1)
+
+    fig.tight_layout()
+
+    return fig
+
+def stack_template_difference(template_before, template_after):
+
+    template_before_, template_after_ = detach_for_plot(template_before), detach_for_plot(template_after)
+
+    temp_diff = template_after_ - template_before_
+
+    template_grid = np.hstack([template_before_, template_after_, temp_diff])
+
+    return template_grid
 
 def get_deformation_magnitude(flow):
         '''
