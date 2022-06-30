@@ -6,6 +6,8 @@ import torch.nn.functional as nnf
 from torch.distributions.normal import Normal
 from torch.autograd import Variable
 
+import copy
+
 
 class SpatialTransformer(nn.Module):
     """
@@ -399,24 +401,30 @@ class ConvBlock(nn.Module):
         out = self.activation(out)
         return out
 
-class AtlasLayer(nn.Module):
-
-    def __init__(self, inshape, initialization = None):
-        super().__init__()
-
-        self.atlas_list = nn.ParameterList()
-        # Atlas layer
-        if initialization == None:
-            self.atlas_list.append(nn.Parameter(torch.randn(*inshape), requires_grad=True))
-        else:
-            self.atlas_list.append(nn.Parameter(data = initialization, requires_grad=True))
-        ##### ToDo: Initialize and
-    
-    def forward(self, x):
-
-        # Resize atlas layer to x?
-
-        return self.atlas_list[0]
+# class AtlasLayer(nn.Module):
+#
+#     def __init__(self, inshape, initialization = None):
+#         super().__init__()
+#
+#         self.atlas_list = nn.ParameterList()
+#         # Atlas layer
+#         if initialization == None:
+#             self.atlas_list.append(nn.Parameter(torch.tensor(torch.randn(*inshape), requires_grad=True)))
+#         else:
+#             # self.atlas_list.append(nn.Parameter(data = initialization, requires_grad=True))
+#             self.atlas_list.append(nn.Parameter(torch.tensor(initialization, requires_grad=True)))
+#
+#         ##### ToDo: Initialize and
+#
+#     def forward(self, x):
+#
+#         # Resize atlas layer to x?
+#         for i, p in enumerate(self.params):
+#             x_concat = torch.concat([p, x], dim=1)
+#         # self.atlas_list[0].retain_grad()
+#         # x_concat.retain_grad()
+#
+#         return x_concat
 
 
 class VoxelMorph_TemplateCreation(nn.Module):
@@ -462,19 +470,25 @@ class VoxelMorph_TemplateCreation(nn.Module):
             unet_half_res: Skip the last unet decoder upsampling. Requires that int_downsize=2.
                 Default is False.
         """
-        super().__init__()
+        super(VoxelMorph_TemplateCreation, self).__init__()
+
+
 
         self.bidir = bidir
 
-        # ensure correct dimensionality
+        # ensure correct dimensionalitys
         ndims = len(inshape)
         assert ndims in [1, 2, 3], 'ndims should be one of 1, 2, or 3. found: %d' % ndims
+
+        # Parameter creation dummy:
+        # self.alpha = nn.Parameter(torch.tensor(torch.randn(1, 1, *inshape), requires_grad=True))
 
         ##### Atlas layer (theoretically not necessary if initialized)
         # self.atlas_layer = nn.ParameterList(parameters=[nn.Parameter(torch.randn(1, src_feats, *inshape))])
         # self.atlas_layer = nn.Parameter(torch.randn(1, src_feats, *inshape), requires_grad=True) 
         # self.atlas_layer = Variable(torch.randn(1, src_feats, *inshape), requires_grad=True)
-        self.atlas_layer = AtlasLayer(inshape=(1, src_feats, *inshape), initialization=None)
+        # self.atlas_layer = AtlasLayer(inshape=(1, src_feats, (*inshape)), initialization=None)
+        self.atlas_layer = nn.Parameter(torch.randn(1, src_feats, *inshape), requires_grad=True)
 
         # Registration model
         self.vxm_dense = VoxelMorph(inshape,
@@ -492,7 +506,7 @@ class VoxelMorph_TemplateCreation(nn.Module):
                                     **kwargs)
     def get_atlas_tensor(self):
 
-        return self.atlas_layer.atlas_list[0].data
+        return self.atlas_layer.detach().clone()
 
     def set_initial_atlas(self, atlas):
         ''' 
@@ -501,8 +515,9 @@ class VoxelMorph_TemplateCreation(nn.Module):
             inshape: shape of atlas tensor
             atlas: atlas tensor 
         '''
-        del(self.atlas_layer)
-        self.atlas_layer = AtlasLayer(inshape = atlas.shape, initialization=atlas)
+        # del(self.atlas_layer)
+        # self.atlas_layer = AtlasLayer(inshape = atlas.shape, initialization=atlas)
+        self.atlas_layer.data = torch.tensor(atlas, requires_grad=True)
 
     def forward(self, target, registration=False):
         '''
@@ -517,14 +532,16 @@ class VoxelMorph_TemplateCreation(nn.Module):
         ### ToDo: figure out order!
         # atlas_template = self.atlas_layer[0].cuda() # adjust depending on ParameterList
         # atlas_template = self.atlas_layer.cuda() # required if initializd as Parameter/Variable
-        atlas_template = self.atlas_layer(target) # for atals layer class - input currently not used
 
         # ensure correct dimensionality (for torchsummary -> if no batch size is given)
         if len(target.shape) == 3:
             target = target[None, :] # Adds dimension in place of dimension for batch size (due to bug in torchsummary)
 
         assert(self.vxm_dense.bidir, "ToDo: Prediction output needs to be changed if NOT bidir")
-        y_source, y_target, pos_flow = self.vxm_dense(atlas_template, target, registration = registration)
+        y_source, y_target, pos_flow = self.vxm_dense(source = self.atlas_layer, target = target, registration = registration)
         # else: y_source, y_source, pos_flow = self.vxm_dense(atlas_template, target, registration = registration)
-        
-        return y_source, y_target, pos_flow, atlas_template
+
+        # template_pred = copy.deepcopy(self.atlas_layer.atlas_list[0])
+        template_pred = self.atlas_layer.detach().clone()
+
+        return y_source, y_target, pos_flow, template_pred
