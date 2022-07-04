@@ -167,12 +167,57 @@ class Grad_2D:
             grad *= self.loss_mult
         return grad
 
-class Mean_Stream:
+class MeanStream:
     """
-    Mean squared error loss.
+    Maintain stream of data mean.
+
+    Adapted from:
+    https://github.com/adalca/neurite/blob/741c95d794f82f91d568eb28ef0c8d1f36d509cd/neurite/tf/layers.py#L1721
+
+        A.V. Dalca, M. Rakic, J. Guttag, M.R. Sabuncu.
+        Learning Conditional Deformable Templates with Convolutional Networks
+        NeurIPS: Advances in Neural Information Processing Systems. pp 804-816, 2019.
+
     """
 
-    def __call__(self, y_true, y_pred):
-        if y_true is None:
-            y_true = torch.zeros_like(y_pred)
-        return torch.mean((y_true - y_pred) ** 2)
+    def __init__(self, inshape, cap = 100, **kwargs): #needs to be called before training
+        super(MeanStream, self).__init__(**kwargs)
+
+        self.mean = torch.zeros(*inshape).to('cuda') # needs to be redefined for 3D
+        self.cap = cap
+        self.count = 0
+
+    def __call__(self, x, training = None):
+
+        # Get batch size_
+        batch_size = x.shape[0]
+
+        new_mean, new_count = _mean_update(self.mean, self.count, x, self.cap)
+
+        if training is False:
+            return np.minimum(1., self.count / self.cap) * self.mean
+
+        # Only if training is going on, update the class mean:
+        self.mean = new_mean
+        self.count = new_count
+
+        # First inputs should not matter that much (if count below cap -> weight the loss less)
+        return np.minimum(1., self.count / self.cap) * self.mean
+
+
+def _mean_update(pre_mean, pre_count, x, pre_cap=None):
+    '''
+    Compute new mean
+    '''
+    this_sum = torch.sum(x, dim=0, keepdim=True)
+    this_bs = x.shape[0]
+
+    # increase count and compute weights
+    new_count = pre_count + this_bs
+    alpha = this_bs / np.minimum(new_count, pre_cap)
+
+    # compute new mean. Note that once we reach self.cap (e.g. 1000),
+    # the 'previous mean' matters less
+    new_mean = pre_mean * (1 - alpha) + (this_sum / this_bs) * alpha
+
+    return (new_mean, new_count)
