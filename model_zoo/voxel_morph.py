@@ -24,7 +24,7 @@ class SpatialTransformer(nn.Module):
         grids = torch.meshgrid(vectors)
         grid = torch.stack(grids)
         grid = torch.unsqueeze(grid, 0)
-        grid = grid.type(torch.FloatTensor)
+        grid = grid.type(torch.cuda.FloatTensor)
 
         # registering the grid as a buffer cleanly moves it to the GPU, but it also
         # adds it to the state dict. this is annoying since everything in the state dict
@@ -519,29 +519,68 @@ class VoxelMorph_TemplateCreation(nn.Module):
         # self.atlas_layer = AtlasLayer(inshape = atlas.shape, initialization=atlas)
         self.atlas_layer.data = torch.tensor(atlas, requires_grad=True)
 
-    def forward(self, target, registration=False):
+    def forward(self, target, registration=True, source_for_pairwise = None):
         '''
         Parameters:
-            source: Source image tensor.
             target: Target image tensor.
             registration: Return transformed image and flow. Default is False.
+            source_for_pairwise: (Optional) Source image tensor for registration via template (only for inference)
 
         Output:
         '''
         # concatenate inputs and propagate unet
-        ### ToDo: figure out order!
         # atlas_template = self.atlas_layer[0].cuda() # adjust depending on ParameterList
         # atlas_template = self.atlas_layer.cuda() # required if initializd as Parameter/Variable
 
         # ensure correct dimensionality (for torchsummary -> if no batch size is given)
-        if len(target.shape) == 3:
-            target = target[None, :] # Adds dimension in place of dimension for batch size (due to bug in torchsummary)
 
-        assert(self.vxm_dense.bidir, "ToDo: Prediction output needs to be changed if NOT bidir")
-        y_source, y_target, pos_flow = self.vxm_dense(source = self.atlas_layer, target = target, registration = registration)
-        # else: y_source, y_source, pos_flow = self.vxm_dense(atlas_template, target, registration = registration)
+        if source_for_pairwise is None:
 
-        # template_pred = copy.deepcopy(self.atlas_layer.atlas_list[0])
-        template_pred = self.atlas_layer.detach().clone()
+            if len(target.shape) == 3:
+                target = target[None, :] # Adds dimension in place of dimension for batch size (due to bug in torchsummary)
 
-        return y_source, y_target, pos_flow, template_pred
+            assert(self.vxm_dense.bidir, "ToDo: Prediction output needs to be changed if NOT bidir")
+            y_source, y_target, pos_flow = self.vxm_dense(source = self.atlas_layer, target = target, registration = registration)
+            # else: y_source, y_source, pos_flow = self.vxm_dense(atlas_template, target, registration = registration)
+
+            # template_pred = copy.deepcopy(self.atlas_layer.atlas_list[0])
+            template_pred = self.atlas_layer.detach().clone()
+
+            return y_source, y_target, pos_flow, template_pred
+
+        # if tensor is passed for pairwise registration (only for inference!)
+        else:
+            assert(target.shape == source_for_pairwise.shape)
+
+            return self.register_pairwise(moving = source_for_pairwise, fixed = target)
+
+            # Register
+
+    def register_pairwise(self, moving, fixed):
+        '''
+       Parameters:
+           source: Source image tensor.
+           target: Target image tensor.
+           registration: Return transformed source image and flow. Default is False.
+       Output:
+
+       Comment: Bidirectional training would help to learn?
+       '''
+
+        # template_pred = self.atlas_layer.detach().clone()
+
+        # Transform source to template
+        _, _, phi_m_t = self.vxm_dense(source = moving, target = self.atlas_layer, registration = True)
+
+        # Transform template to target
+        _, _, phi_t_f = self.vxm_dense(source=self.atlas_layer, target=fixed, registration=True)
+
+        # Combine deformations
+        transformer = SpatialTransformer(phi_m_t.shape[2:]) # shape of image
+        pos_flow = transformer(phi_m_t, phi_t_f)
+
+        # Warp source to target
+        m_warped = self.vxm_dense.transformer(moving, pos_flow)
+
+        return m_warped, pos_flow, phi_m_t, phi_t_f
+
