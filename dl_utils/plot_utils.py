@@ -75,8 +75,27 @@ class PlotResults():
         # Subplots
         fig, ax = plt.subplots(1, len(img_list))
         for i in range(len(img_list)):
-            plot_with_colorbar(img_list[i], ax_handle=ax[i], vmin=-1, vmax=1)
-        fig.tight_layout
+            plot_with_colorbar(img_list[i], ax_handle=ax[i], cmap='viridis', vmin=-1, vmax=1)
+        fig.tight_layout()
+
+        return fig
+
+    def plot_deformation_grids(self, flow_tensor_list, title_list = None):
+        # ToDo: plot colorbar with given range (without changing data points)
+
+        flow_tensor_list = self.transform_all_inputs(flow_tensor_list)
+        # Subplots
+        fig, ax = plt.subplots(1, len(flow_tensor_list), figsize=[10, 20])
+
+        if title_list is None:
+            title_list = ["$\mathcal{T}_\phi$_m->t","$\mathcal{T}_\phi$_t->f", "$\mathcal{T}_\phi$_m->f"]
+
+        for idx, flow_tensor in enumerate(flow_tensor_list):
+            dim = flow_tensor.shape[1]
+            #reorder flow tensor
+            tensor = np.moveaxis(flow_tensor, -1, 0)
+            ax[idx] = plot_warped_grid(ax[idx], tensor, interval = 5, title= title_list[idx])
+        fig.tight_layout()
 
         return fig
 
@@ -208,3 +227,37 @@ def stack_deformation_results(flow_tensor):
 
         return def_image
 
+def plot_warped_grid(ax, disp, bg_img=None, interval=3, title="$\mathcal{T}_\phi$", fontsize=30, color='c'):
+    """disp shape (2, H, W)
+
+      adapted from: https://github.com/qiuhuaqi/midir
+    """
+    if bg_img is not None:
+        background = bg_img
+    else:
+        background = np.zeros(disp.shape[1:])
+
+    id_grid_H, id_grid_W = np.meshgrid(range(0, background.shape[0] - 1, interval),
+                                       range(0, background.shape[1] - 1, interval),
+                                       indexing='ij')
+
+    new_grid_H = id_grid_H + disp[0, id_grid_H, id_grid_W]
+    new_grid_W = id_grid_W + disp[1, id_grid_H, id_grid_W]
+
+    kwargs = {"linewidth": 1.5, "color": color}
+    # matplotlib.plot() uses CV x-y indexing
+
+    for i in range(new_grid_H.shape[0]):
+        ax.plot(new_grid_W[i, :], new_grid_H[i, :], **kwargs)  # each draws a horizontal line
+    for i in range(new_grid_H.shape[1]):
+        ax.plot(new_grid_W[:, i], new_grid_H[:, i], **kwargs)  # each draws a vertical line
+
+    ax.set_title(title, fontsize=fontsize)
+    ax.imshow(background, cmap='gray')
+    # ax.axis('off')
+    ax.grid(False)
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_frame_on(False)
+
+    return ax
