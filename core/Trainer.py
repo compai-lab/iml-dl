@@ -70,7 +70,7 @@ class Trainer:
 
         self.training_params = training_params
 
-        self.train_ds, self.val_ds = data.train_dataloader(), data.val_dataloader()
+        self.train_ds, self.val_ds = data.train_dataloader().dataloader, data.val_dataloader().dataloader
         self.num_train_samples = len(self.train_ds) * self.train_ds.batch_size
 
         self.device = device
