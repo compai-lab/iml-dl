@@ -186,23 +186,38 @@ class MeanStream:
         self.mean = torch.zeros(*inshape).to('cuda') # needs to be redefined for 3D
         self.cap = cap
         self.count = 0
+        self.last_deformations = []
 
-    def __call__(self, x, training = None):
+    def get_mean_and_count(self):
+        return self.mean, self.count
+
+    def get_last_deformations(self):
+        return self.last_deformations
+
+    def append_deformation(self, phi):
+
+        self.last_deformations.append(phi)
+
+        if len(self.last_deformations) >= self.cap:
+            self.last_deformations.pop()
+            assert (len(self.last_deformations) == self.cap-1) # -1 because in training loop a further one is added
+
+    def update_with_mean(self, x, training = None):
 
         # Get batch size_
         batch_size = x.shape[0]
 
         new_mean, new_count = _mean_update(self.mean, self.count, x, self.cap)
 
-        if training is False:
-            return np.minimum(1., self.count / self.cap) * self.mean
+        # if training is False:
+        #     return np.minimum(1., self.count / self.cap) * self.mean
 
         # Only if training is going on, update the class mean:
         self.mean = new_mean
         self.count = new_count
 
         # First inputs should not matter that much (if count below cap -> weight the loss less)
-        return np.minimum(1., self.count / self.cap) * self.mean
+        # return np.minimum(1., self.count / self.cap) * self.mean
 
 
 def _mean_update(pre_mean, pre_count, x, pre_cap=None):
