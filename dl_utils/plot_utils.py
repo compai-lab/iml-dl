@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 import SimpleITK as sitk
 import torch
+import os
 
 class PlotResults():
 
@@ -89,15 +90,31 @@ class PlotResults():
 
         if title_list is None:
             title_list = ["$\mathcal{T}_\phi$_m->t","$\mathcal{T}_\phi$_t->f", "$\mathcal{T}_\phi$_m->f"]
+            title_list = ["\phi", "\phi", "\phi"]
+
 
         for idx, flow_tensor in enumerate(flow_tensor_list):
             dim = flow_tensor.shape[1]
             #reorder flow tensor
             tensor = np.moveaxis(flow_tensor, -1, 0)
-            ax[idx] = plot_warped_grid(ax[idx], tensor, interval = 5, title= title_list[idx])
+            if len(flow_tensor_list) != 1:
+                ax[idx] = plot_warped_grid(ax[idx], tensor, interval = 5, title= title_list[idx])
+            else:
+                ax = plot_warped_grid(ax, tensor, interval=5,
+                                      title=title_list[0])  # if only one tensor than axis no iterable
         fig.tight_layout()
 
         return fig
+
+    def save_tensor_to_image_path(self, image_tensor, path, title):
+
+        [image_np] = self.transform_all_inputs([image_tensor])
+
+        fig, ax = plt.subplots()
+        ax.imshow(image_np, cmap='gray')
+        ax.set_title(title)
+
+        save_figure_to_path(fig=fig, path = path, title = title)
 
 
 # Helper functions
@@ -261,3 +278,12 @@ def plot_warped_grid(ax, disp, bg_img=None, interval=3, title="$\mathcal{T}_\phi
     ax.set_frame_on(False)
 
     return ax
+
+
+def save_figure_to_path(fig, path, title):
+
+    if not os.path.exists(path):
+        os.makedirs(path)
+
+    fig.savefig(os.path.join(path,title))
+
