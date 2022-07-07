@@ -30,10 +30,13 @@ import math
 class NCC:
     """
     Local (over window) normalized cross correlation loss.
+    Correction adapted from:
+    https://github.com/voxelmorph/voxelmorph/pull/358/files
     """
 
-    def __init__(self, win=None):
+    def __init__(self, win=None,  eps=1e-5):
         self.win = win
+        self.eps = 1e-5
 
     def __call__(self, y_true, y_pred):
 
@@ -41,7 +44,7 @@ class NCC:
         Ji = y_pred
 
         # get dimension of volume
-        # assumes Ii, Ji are sized [batch_size, *vol_shape, nb_feats]
+        # assumes Ii, Ji are sized [batch_size, nb_feats, *vol_shape]
         ndims = len(list(Ii.size())) - 2
         assert ndims in [1, 2, 3], "volumes should be 1 to 3 dimensions. found: %d" % ndims
 
@@ -78,14 +81,21 @@ class NCC:
         IJ_sum = conv_fn(IJ, sum_filt, stride=stride, padding=padding)
 
         win_size = np.prod(win)
-        u_I = I_sum / win_size
-        u_J = J_sum / win_size
+        # u_I = I_sum / win_size
+        # u_J = J_sum / win_size
+        #
+        # cross = IJ_sum - u_J * I_sum - u_I * J_sum + u_I * u_J * win_size
+        # I_var = I2_sum - 2 * u_I * I_sum + u_I * u_I * win_size
+        # J_var = J2_sum - 2 * u_J * J_sum + u_J * u_J * win_size
+        cross = IJ_sum - I_sum * J_sum / win_size
+        cross = torch.clamp(cross, min=self.eps)
+        I_var = I2_sum - I_sum * I_sum / win_size
+        I_var = torch.clamp(I_var, min=self.eps)
+        J_var = J2_sum - J_sum * J_sum / win_size
+        J_var = torch.clamp(J_var, min=self.eps)
+        cc = (cross / I_var) * (cross / J_var)
 
-        cross = IJ_sum - u_J * I_sum - u_I * J_sum + u_I * u_J * win_size
-        I_var = I2_sum - 2 * u_I * I_sum + u_I * u_I * win_size
-        J_var = J2_sum - 2 * u_J * J_sum + u_J * u_J * win_size
-
-        cc = cross * cross / (I_var * J_var + 1e-5)
+        # cc = cross * cross / (I_var * J_var + 1e-5)
 
         return -torch.mean(cc)
 
@@ -167,6 +177,93 @@ class Grad_2D:
             grad *= self.loss_mult
         return grad
 
+
+
+#### Jacobian Determinant
+# Code adapted from
+# https://github.com/voxelmorph/voxelmorph/issues/82#issuecomment-523447568
+# and
+# https://github.com/adalca/pystrum/blob/master/pystrum/pynd/ndutils.py
+def jacdet_loss(flow_tensor):
+
+        jacdet = flow_to_jacdet(flow_tensor)
+
+        nb_neg = (jacdet < 0).sum()
+        nb_total = np.prod(jacdet.shape)
+
+        return nb_neg / nb_total
+
+
+def flow_to_jacdet(flow):
+
+    vol_size = flow.shape[:-1]
+    n_dims = len(vol_size)
+
+    assert n_dims in (2,3)
+
+    grid = np.stack(volsize2ndgrid(vol_size), len(vol_size))
+    J = np.gradient(flow + grid)
+
+
+    if n_dims == 3:
+
+        dx = J[0]
+        dy = J[1]
+        dz = J[2]
+
+        Jdet0 = dx[:,:,:,0] * (dy[:,:,:,1] * dz[:,:,:,2] - dy[:,:,:,2] * dz[:,:,:,1])
+        Jdet1 = dx[:,:,:,1] * (dy[:,:,:,0] * dz[:,:,:,2] - dy[:,:,:,2] * dz[:,:,:,0])
+        Jdet2 = dx[:,:,:,2] * (dy[:,:,:,0] * dz[:,:,:,1] - dy[:,:,:,1] * dz[:,:,:,0])
+
+        Jdet = Jdet0 - Jdet1 + Jdet2
+
+        return Jdet
+
+    else:
+
+        dfdx = J[0]
+        dfdy = J[1]
+
+        Jdet = dfdx[..., 0] * dfdy[..., 1] - dfdy[..., 0] * dfdx[..., 1]
+
+    return Jdet
+
+def eval_jacdet(jacdet):
+    '''
+    Input:
+    jadet: numpy array, Jacobian determinant
+    Output:
+    overall percentage of values below zero
+    '''
+
+    nb_neg = (jacdet <0).sum()
+    nb_total = np.prod(jacdet.shape)
+
+    return nb_neg / nb_total
+
+
+def volsize2ndgrid(volsize):
+    """
+    return the dense nd-grid for the volume with size volsize
+    essentially return the ndgrid fpr
+    """
+    ranges = [np.arange(e) for e in volsize]
+    return ndgrid(*ranges)
+
+
+def ndgrid(*args, **kwargs):
+    """
+    Disclaimer: This code is taken directly from the scitools package [1]
+    Since at the time of writing scitools predominantly requires python 2.7 while we work with 3.5+
+    To avoid issues, we copy the quick code here.
+    Same as calling ``meshgrid`` with *indexing* = ``'ij'`` (see
+    ``meshgrid`` for documentation).
+    """
+    kwargs['indexing'] = 'ij'
+    return np.meshgrid(*args, **kwargs)
+
+
+### MeanStream (for groupwise registration, regularization of multiple displacement fields) ###
 class MeanStream:
     """
     Maintain stream of data mean.
@@ -236,3 +333,67 @@ def _mean_update(pre_mean, pre_count, x, pre_cap=None):
     new_mean = pre_mean * (1 - alpha) + (this_sum / this_bs) * alpha
 
     return (new_mean, new_count)
+
+### MIND metric and helper functions
+# from pull request for VxmMorph https://github.com/voxelmorph/voxelmorph/pull/145
+def pdist_squared(x):
+    xx = (x ** 2).sum(dim=1).unsqueeze(2)
+    yy = xx.permute(0, 2, 1)
+    dist = xx + yy - 2.0 * torch.bmm(x.permute(0, 2, 1), x)
+    dist[dist != dist] = 0
+    dist = torch.clamp(dist, 0.0, np.inf)
+    return dist
+
+
+def MINDSSC(img, radius=2, dilation=2):
+    # see http://mpheinrich.de/pub/miccai2013_943_mheinrich.pdf for details on the MIND-SSC descriptor
+
+    # kernel size
+    kernel_size = radius * 2 + 1
+
+    # define start and end locations for self-similarity pattern
+    six_neighbourhood = torch.Tensor([[0, 1, 1],
+                                      [1, 1, 0],
+                                      [1, 0, 1],
+                                      [1, 1, 2],
+                                      [2, 1, 1],
+                                      [1, 2, 1]]).long()
+
+    # squared distances
+    dist = pdist_squared(six_neighbourhood.t().unsqueeze(0)).squeeze(0)
+
+    # define comparison mask
+    x, y = torch.meshgrid(torch.arange(6), torch.arange(6))
+    mask = ((x > y).view(-1) & (dist == 2).view(-1))
+
+    # build kernel
+    idx_shift1 = six_neighbourhood.unsqueeze(1).repeat(1, 6, 1).view(-1, 3)[mask, :]
+    idx_shift2 = six_neighbourhood.unsqueeze(0).repeat(6, 1, 1).view(-1, 3)[mask, :]
+    mshift1 = torch.zeros(12, 1, 3, 3, 3).cuda()
+    mshift1.view(-1)[torch.arange(12) * 27 + idx_shift1[:, 0] * 9 + idx_shift1[:, 1] * 3 + idx_shift1[:, 2]] = 1
+    mshift2 = torch.zeros(12, 1, 3, 3, 3).cuda()
+    mshift2.view(-1)[torch.arange(12) * 27 + idx_shift2[:, 0] * 9 + idx_shift2[:, 1] * 3 + idx_shift2[:, 2]] = 1
+    rpad1 = torch.nn.ReplicationPad3d(dilation)
+    rpad2 = torch.nn.ReplicationPad3d(radius)
+
+    # compute patch-ssd
+    ssd = F.avg_pool3d(rpad2(
+        (F.conv3d(rpad1(img), mshift1, dilation=dilation) - F.conv3d(rpad1(img), mshift2, dilation=dilation)) ** 2),
+                       kernel_size, stride=1)
+
+    # MIND equation
+    mind = ssd - torch.min(ssd, 1, keepdim=True)[0]
+    mind_var = torch.mean(mind, 1, keepdim=True)
+    mind_var = torch.clamp(mind_var, mind_var.mean() * 0.001, mind_var.mean() * 1000)
+    mind /= mind_var
+    mind = torch.exp(-mind)
+
+    # permute to have same ordering as C++ code
+    mind = mind[:, torch.Tensor([6, 8, 1, 11, 2, 10, 0, 7, 9, 4, 5, 3]).long(), :, :, :]
+
+    return mind
+
+
+def mind_loss(x, y):
+    return torch.mean((MINDSSC(x) - MINDSSC(y)) ** 2)
+
