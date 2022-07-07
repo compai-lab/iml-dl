@@ -4,6 +4,7 @@ from mpl_toolkits.axes_grid1 import make_axes_locatable
 import SimpleITK as sitk
 import torch
 import os
+from optim.losses.vxm_losses import *
 
 class PlotResults():
 
@@ -116,9 +117,20 @@ class PlotResults():
 
         save_figure_to_path(fig=fig, path = path, title = title)
 
+    def plot_jacobian(self, flow_tensor, title = '', return_value = False):
+
+        [flow_np] = self.transform_all_inputs([flow_tensor])
+
+        jacdet = flow_to_jacdet(flow_np)
+        fig, ax = plt.subplots()
+        ax = plot_with_colorbar(jacdet, ax, title = 'Jacobian', vmin=0)
+
+        return fig, jacdet if return_value else fig
+
 
 # Helper functions
 def plot_with_colorbar(data, ax_handle, title=None, cmap='gray', vmin=0, vmax=1, **kwargs):
+
     im = ax_handle.imshow(data, cmap=cmap, vmin=vmin, vmax=vmax, **kwargs)
 
     if title:
