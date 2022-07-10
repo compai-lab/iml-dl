@@ -506,7 +506,7 @@ class VoxelMorph_TemplateCreation(nn.Module):
                                     **kwargs)
     def get_atlas_tensor(self):
 
-        return self.atlas_layer.detach().clone()
+        return self.atlas_layer.clone().detach()
 
     def set_initial_atlas(self, atlas):
         ''' 
@@ -544,7 +544,7 @@ class VoxelMorph_TemplateCreation(nn.Module):
             # else: y_source, y_source, pos_flow = self.vxm_dense(atlas_template, target, registration = registration)
 
             # template_pred = copy.deepcopy(self.atlas_layer.atlas_list[0])
-            template_pred = self.atlas_layer.detach().clone()
+            template_pred = self.atlas_layer.clone()
 
             return y_source, y_target, pos_flow, template_pred
 
@@ -570,10 +570,11 @@ class VoxelMorph_TemplateCreation(nn.Module):
         # template_pred = self.atlas_layer.detach().clone()
 
         # Transform source to template
-        _, _, phi_m_t = self.vxm_dense(source = moving, target = self.atlas_layer, registration = True)
+        template = self.get_atlas_tensor()
+        _, _, phi_m_t = self.vxm_dense(source = moving, target = template, registration = True)
 
         # Transform template to target
-        _, _, phi_t_f = self.vxm_dense(source=self.atlas_layer, target=fixed, registration=True)
+        _, _, phi_t_f = self.vxm_dense(source = template, target=fixed, registration=True)
 
         # Combine deformations
         transformer = SpatialTransformer(phi_m_t.shape[2:]) # shape of image
