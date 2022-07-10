@@ -177,13 +177,48 @@ class Grad_2D:
             grad *= self.loss_mult
         return grad
 
+from scipy.ndimage import sobel
 
+class Tenengrad():
+
+    def __call__(self, _ ,  img):
+        '''
+            Parameters
+            ----------
+            img : numpy array
+                image for which the metrics should be calculated.
+            brainmask_fl : numpy array or list, optional
+                If a non-empty numpy array is given, this brainmask will be used to
+                mask the images before calculating the metrics. If an empty list is
+                given, no mask is applied. The default is [].
+            Returns
+            -------
+            tg : float
+                Tenengrad measure of the input image.
+            '''
+        # image needs to be in floating point numbers in order for gradient to be
+        # correctly calculated
+        img = img.astype(np.float)
+
+        # calulate gradients:
+        grad_x = sobel(img, axis=0, mode='reflect')
+        grad_y = sobel(img, axis=1, mode='reflect')
+        grad_z = sobel(img, axis=2, mode='reflect')
+        nabla_ab = np.sqrt(grad_x ** 2 + grad_y ** 2 + grad_z ** 2)
+        nabla_abs = nabla_ab.flatten()
+
+        # apply flattened brainmask:
+        # if len(brainmask) > 0:
+        #     nabla_abs = nabla_abs[brainmask.flatten() > 0]
+
+        return np.mean(nabla_abs ** 2)
 
 #### Jacobian Determinant
 # Code adapted from
 # https://github.com/voxelmorph/voxelmorph/issues/82#issuecomment-523447568
 # and
 # https://github.com/adalca/pystrum/blob/master/pystrum/pynd/ndutils.py
+
 def jacdet_loss(flow_tensor):
 
         jacdet = flow_to_jacdet(flow_tensor)
