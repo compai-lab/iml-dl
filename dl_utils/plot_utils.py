@@ -48,7 +48,7 @@ class PlotResults():
         # img_true[0, 0], img_true[0, 1] = 0, 1
         # img_start[0, 0], img_start[0, 1] = 0, 1
 
-        improvement_vis_factor = 100
+        improvement_vis_factor = 50
 
         grid_image = np.hstack([x, y_true, y_pred, img_diff_before, img_diff_after, improvement*improvement_vis_factor])
         # grid_image_ = stack_registration_results(x, y_pred, y_true)
@@ -117,15 +117,36 @@ class PlotResults():
 
         save_figure_to_path(fig=fig, path = path, title = title)
 
-    def plot_jacobian(self, flow_tensor, title = '', return_value = False):
+    def plot_jacobian(self, flow_tensor_list, title = '', return_value = False):
 
-        [flow_np] = self.transform_all_inputs([flow_tensor])
+        if flow_tensor_list is list:
 
-        jacdet = flow_to_jacdet(flow_np)
-        fig, ax = plt.subplots()
-        ax = plot_with_colorbar(jacdet, ax, title = 'Jacobian', vmin=0)
+            flow_np = self.transform_all_inputs(flow_tensor_list)
+            fig, ax = plt.subplots(1, len(flow_tensor_list))
+            jacdet = [] *  len(flow_tensor_list)
 
-        return fig, jacdet if return_value else fig
+            for i, flow_tensor in enumerate(flow_np):
+                # reorder flow tensor
+                tensor = np.moveaxis(flow_tensor, -1, 0)
+                jacdet[i] = flow_to_jacdet(flow_tensor)
+                ax[i] = plot_with_colorbar(jacdet, ax[i], title='Jacobian', vmin=0)
+                # if only one tensor than axis no iterable
+            fig.tight_layout()
+
+            return fig, jacdet if return_value else fig
+
+        else:
+
+            [flow_np] = self.transform_all_inputs(flow_tensor_list)
+            tensor = np.moveaxis(flow_np, -1, 0)
+            jacdet = flow_to_jacdet(flow_np)
+            fig, ax = plt.subplots()
+            ax = plot_with_colorbar(jacdet, ax, title = 'Jacobian', vmin=0)
+            fig.tight_layout()
+
+            return fig, jacdet if return_value else fig
+
+
 
 
 # Helper functions
