@@ -397,3 +397,95 @@ def MINDSSC(img, radius=2, dilation=2):
 def mind_loss(x, y):
     return torch.mean((MINDSSC(x) - MINDSSC(y)) ** 2)
 
+
+## JacDet
+import numpy as np
+
+## Code adapted from
+# https://github.com/voxelmorph/voxelmorph/issues/82#issuecomment-523447568
+# and
+# https://github.com/adalca/pystrum/blob/master/pystrum/pynd/ndutils.py
+
+def flow_to_jacdet(flow):
+
+    vol_size = flow.shape[:-1]
+    n_dims = len(vol_size)
+
+    assert n_dims in (2,3)
+
+    grid = np.stack(volsize2ndgrid(vol_size), len(vol_size))
+    J = np.gradient(flow + grid)
+
+
+    if n_dims == 3:
+
+        dx = J[0]
+        dy = J[1]
+        dz = J[2]
+
+        Jdet0 = dx[:,:,:,0] * (dy[:,:,:,1] * dz[:,:,:,2] - dy[:,:,:,2] * dz[:,:,:,1])
+        Jdet1 = dx[:,:,:,1] * (dy[:,:,:,0] * dz[:,:,:,2] - dy[:,:,:,2] * dz[:,:,:,0])
+        Jdet2 = dx[:,:,:,2] * (dy[:,:,:,0] * dz[:,:,:,1] - dy[:,:,:,1] * dz[:,:,:,0])
+
+        Jdet = Jdet0 - Jdet1 + Jdet2
+
+        return Jdet
+
+    else:
+
+        dfdx = J[0]
+        dfdy = J[1]
+
+        Jdet = dfdx[..., 0] * dfdy[..., 1] - dfdy[..., 0] * dfdx[..., 1]
+
+    return Jdet
+
+def eval_jacdet(jacdet):
+    '''
+    Input:
+    jadet: numpy array, Jacobian determinant
+    Output:
+    overall percentage of values below zero
+    '''
+
+    nb_neg = (jacdet <0).sum()
+    nb_total = np.prod(jacdet.shape)
+
+    return nb_neg / nb_total
+
+
+def volsize2ndgrid(volsize):
+    """
+    return the dense nd-grid for the volume with size volsize
+    essentially return the ndgrid fpr
+    """
+    ranges = [np.arange(e) for e in volsize]
+    return ndgrid(*ranges)
+
+
+def ndgrid(*args, **kwargs):
+    """
+    Disclaimer: This code is taken directly from the scitools package [1]
+    Since at the time of writing scitools predominantly requires python 2.7 while we work with 3.5+
+    To avoid issues, we copy the quick code here.
+    Same as calling ``meshgrid`` with *indexing* = ``'ij'`` (see
+    ``meshgrid`` for documentation).
+    """
+    kwargs['indexing'] = 'ij'
+    return np.meshgrid(*args, **kwargs)
+
+### REcon loss
+# LPIPS
+import lpips
+
+class LPIPS:
+
+    def __init__(self, net = 'alex', eval_mode=True, device = 'cuda'):
+        # For training eval_mode needs to be False
+        self.lpips = lpips.LPIPS(net=net, eval_mode=eval_mode).to(device)
+
+    def __call__(self, x, y):
+        return torch.squeeze(self.lpips(x,y))
+
+
+
