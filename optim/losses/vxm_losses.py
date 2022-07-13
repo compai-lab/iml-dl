@@ -432,6 +432,15 @@ def MINDSSC(img, radius=2, dilation=2):
 def mind_loss(x, y):
     return torch.mean((MINDSSC(x) - MINDSSC(y)) ** 2)
 
+class MINDLoss():
+
+    def __call__(self, y_pred, y_true) :
+        # pad with one dimension since MIND expects 3D
+        if len(y_pred.shape) == 4:
+            y_pred, y_true = y_pred[..., None], y_true[..., None]
+
+        return mind_loss(y_pred, y_true)
+
 
 ## JacDet
 import numpy as np
