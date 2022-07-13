@@ -381,7 +381,7 @@ class VoxelMorph(nn.Module):
         if not registration:
             return (y_source, y_target, preint_flow) if self.bidir else (y_source, y_source, preint_flow)
         else:
-            return (y_source, y_source, pos_flow) if self.bidir else (y_source, y_target, pos_flow)
+            return (y_source, y_target, pos_flow) if self.bidir else (y_source, y_source, pos_flow)
 
 
 class ConvBlock(nn.Module):
