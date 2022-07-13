@@ -12,9 +12,8 @@ class MorphAEus(nn.Module):
     def __init__(self,
                  inshape,
                  in_channels: int, channels: Sequence[int], out_ch: int, strides: Sequence[int],
-                 kernel_size=3, norm='batch', act='leakyrelu', deconv_mode='upsample', act_final='sigmoid',
-                 bottleneck=False, skip=False,
-                 nr_ref_channels=2, bidir=True):
+                 kernel_size=3, norm='batch', act='leakyrelu', deconv_mode='upsample', act_final='identity',
+                 bottleneck=False, skip=False, nr_ref_channels=2, bidir=True, dim=2):
         """
         Parameters:
             inshape: Input shape. e.g. (1, 128, 128)
@@ -27,12 +26,12 @@ class MorphAEus(nn.Module):
                 Default is False.
         """
         super().__init__()
-        self.encoder = Encoder(in_channels=in_channels, channels=channels, strides=strides,
-                              kernel_size=kernel_size, norm=norm, act=act, deconv_mode=deconv_mode, name_prefix='conv_')
+        self.encoder = Encoder(in_channels=in_channels, channels=channels, strides=strides, kernel_size=kernel_size,
+                               norm=norm, act=act, deconv_mode=deconv_mode, name_prefix='conv_', dim=dim)
 
-        self.decoder = Decoder(in_channels=channels[-1], channels=channels, out_ch=out_ch,
-                              strides=strides, kernel_size=kernel_size, norm=norm, act=act, deconv_mode=deconv_mode,
-                              act_final=act_final, bottleneck=bottleneck, skip=skip, add_final=True, name_prefix='conv_')
+        self.decoder = Decoder(in_channels=channels[-1], channels=channels, out_ch=out_ch, strides=strides,
+                               kernel_size=kernel_size, norm=norm, act=act, deconv_mode=deconv_mode, act_final=act_final,
+                               bottleneck=bottleneck, skip=skip, add_final=True, name_prefix='conv_', dim=dim)
 
         self.nr_ref_channels = nr_ref_channels
         self.nr_channels = len(channels)
@@ -40,7 +39,7 @@ class MorphAEus(nn.Module):
 
         self.deformer = Deformer(inshape=inshape, in_channels=in_channels, channels=ref_channels,
                               strides=strides, kernel_size=kernel_size, norm=norm, act=act, deconv_mode=deconv_mode,
-                                name_prefix='ref_', bidir=bidir)
+                                name_prefix='ref_', bidir=bidir, dim=dim)
 
     def forward(self, x, registration=False):
         encode_history, decode_history = [], []
@@ -49,7 +48,7 @@ class MorphAEus(nn.Module):
                 enc_x = enc_layer(x)
             else:
                 enc_x = enc_layer(enc_x)
-            if isinstance(enc_layer, nn.Conv2d):
+            if isinstance(enc_layer, nn.Conv2d) or isinstance(enc_layer, nn.Conv3d):
                 if enc_x.shape[-1] != 1:
                     encode_history.insert(0, enc_x)
         for i_d, dec_layer in enumerate(self.decoder):
@@ -57,13 +56,16 @@ class MorphAEus(nn.Module):
                 dec_x = dec_layer(enc_x)
             else:
                 dec_x = dec_layer(dec_x)
-            if isinstance(dec_layer, nn.Conv2d) or isinstance(dec_layer, nn.ConvTranspose2d):
+            if isinstance(dec_layer, nn.Conv2d) or isinstance(dec_layer, nn.ConvTranspose2d)\
+                    or isinstance(dec_layer, nn.Conv3d) or isinstance(dec_layer, nn.ConvTranspose3d):
                 if len(decode_history) < len(encode_history) and \
                         encode_history[len(decode_history)].shape[-1] == dec_x.shape[-1]:
                     decode_history.append(dec_x)
 
         y_source, y_target, preint_flow, pos_flow = self.deformer(x, dec_x, encode_history, decode_history, registration)
         # return non-integrated flow field if training
+
+        # return dec_x, {'deformation': dec_x, 'x_prior': dec_x, 'x_reversed': dec_x}
         if not registration:
             return y_source, {'deformation': preint_flow, 'x_prior': dec_x, 'x_reversed': y_target}
         else:

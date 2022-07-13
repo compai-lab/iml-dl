@@ -4,6 +4,8 @@ import numpy as np
 import math
 from model_zoo import VGGEncoder
 from torch.nn.modules.loss import _Loss
+from pytorch_msssim import ssim, ms_ssim, SSIM, MS_SSIM
+
 
 
 class NCC:
@@ -71,6 +73,58 @@ class NCC:
         cc = cross * cross / (I_var * J_var + 1e-5)
 
         return -torch.mean(cc)
+
+
+class DisplacementRegularizer(torch.nn.Module):
+    """
+        code from https://github.com/junyuchen245/TransMorph_Transformer_for_Medical_Image_Registration/
+    """
+
+    def __init__(self, energy_type):
+        super().__init__()
+        self.energy_type = energy_type
+
+    def gradient_dx(self, fv): return (fv[:, 2:, 1:-1, 1:-1] - fv[:, :-2, 1:-1, 1:-1]) / 2
+
+    def gradient_dy(self, fv): return (fv[:, 1:-1, 2:, 1:-1] - fv[:, 1:-1, :-2, 1:-1]) / 2
+
+    def gradient_dz(self, fv): return (fv[:, 1:-1, 1:-1, 2:] - fv[:, 1:-1, 1:-1, :-2]) / 2
+
+    def gradient_txyz(self, Txyz, fn):
+        return torch.stack([fn(Txyz[:,i,...]) for i in [0, 1, 2]], dim=1)
+
+    def compute_gradient_norm(self, displacement, flag_l1=False):
+        dTdx = self.gradient_txyz(displacement, self.gradient_dx)
+        dTdy = self.gradient_txyz(displacement, self.gradient_dy)
+        dTdz = self.gradient_txyz(displacement, self.gradient_dz)
+        if flag_l1:
+            norms = torch.abs(dTdx) + torch.abs(dTdy) + torch.abs(dTdz)
+        else:
+            norms = dTdx**2 + dTdy**2 + dTdz**2
+        return torch.mean(norms)/3.0
+
+    def compute_bending_energy(self, displacement):
+        dTdx = self.gradient_txyz(displacement, self.gradient_dx)
+        dTdy = self.gradient_txyz(displacement, self.gradient_dy)
+        dTdz = self.gradient_txyz(displacement, self.gradient_dz)
+        dTdxx = self.gradient_txyz(dTdx, self.gradient_dx)
+        dTdyy = self.gradient_txyz(dTdy, self.gradient_dy)
+        dTdzz = self.gradient_txyz(dTdz, self.gradient_dz)
+        dTdxy = self.gradient_txyz(dTdx, self.gradient_dy)
+        dTdyz = self.gradient_txyz(dTdy, self.gradient_dz)
+        dTdxz = self.gradient_txyz(dTdx, self.gradient_dz)
+        return torch.mean(dTdxx**2 + dTdyy**2 + dTdzz**2 + 2*dTdxy**2 + 2*dTdxz**2 + 2*dTdyz**2)
+
+    def forward(self, disp):
+        if self.energy_type == 'bending':
+            energy = self.compute_bending_energy(disp)
+        elif self.energy_type == 'gradient-l2':
+            energy = self.compute_gradient_norm(disp)
+        elif self.energy_type == 'gradient-l1':
+            energy = self.compute_gradient_norm(disp, flag_l1=True)
+        else:
+            raise Exception('Not recognised local regulariser!')
+        return energy
 
 
 class DisplacementRegularizer2D(torch.nn.Module):
@@ -149,10 +203,87 @@ class PerceptualLoss(_Loss):
             target (N,*),
                 same shape as input.
         """
+        loss_pl = 0
+        ct_pl = 0
+        if len(input.shape) == 5:
+            input_ = input[0].permute(1, 0, 2, 3)
+            target_ = target[0].permute(1, 0, 2, 3)
+
+            input_features = self.loss_network(input_.repeat(1, 3, 1, 1))
+            output_features = self.loss_network(target_.repeat(1, 3, 1, 1))
+
+            for output_feature, input_feature in zip(output_features, input_features):
+                loss_pl += F.mse_loss(output_feature, input_feature)
+                ct_pl += 1
+
+            input_ = input[0].permute(2, 0, 1, 3)
+            target_ = target[0].permute(2, 0, 1, 3)
+
+            input_features = self.loss_network(input_.repeat(1, 3, 1, 1))
+            output_features = self.loss_network(target_.repeat(1, 3, 1, 1))
+
+            for output_feature, input_feature in zip(output_features, input_features):
+                loss_pl += F.mse_loss(output_feature, input_feature)
+                ct_pl += 1
+
+            input = input[0].permute(3, 0, 1, 2)
+            target = target[0].permute(3, 0, 1, 2)
+
         input_features = self.loss_network(input.repeat(1, 3, 1, 1))
         output_features = self.loss_network(target.repeat(1, 3, 1, 1))
 
-        loss_pl = 0
         for output_feature, input_feature in zip(output_features, input_features):
             loss_pl += F.mse_loss(output_feature, input_feature)
-        return loss_pl
+            ct_pl += 1
+
+        return loss_pl / ct_pl
+
+
+class SSIMLoss(_Loss):
+    """
+    """
+
+    def __init__(
+        self,
+        reduction: str = 'mean',
+        device: str = 'gpu') -> None:
+        """
+        Args
+            reduction: str, {'none', 'mean', 'sum}
+                Specifies the reduction to apply to the output. Defaults to ``"mean"``.
+                - 'none': no reduction will be applied.
+                - 'mean': the sum of the output will be divided by the number of elements in the output.
+                - 'sum': the output will be summed.
+        """
+        super().__init__()
+        self.device = device
+        self.reduction = reduction
+
+    def forward(self, input: torch.Tensor, target: torch.Tensor, z_dict = None):
+        """
+        Args:
+            input: (N,*),
+                where N is the batch size and * is any number of additional dimensions.
+            target (N,*),
+                same shape as input.
+        """
+        loss_ssim = 0
+        ct_ssim = 0
+        if len(input.shape) == 5:
+            input_ = input[0].permute(1, 0, 2, 3)
+            target_ = target[0].permute(1, 0, 2, 3)
+
+            loss_ssim += ssim(input_, target_, data_range=1., size_average=True)  # return a scalar
+            ct_ssim += 1
+            input_ = input[0].permute(2, 0, 1, 3)
+            target_ = target[0].permute(2, 0, 1, 3)
+
+            loss_ssim += ssim(input_, target_, data_range=1., size_average=True)  # return a scalar
+            ct_ssim += 1
+
+            input = input[0].permute(3, 0, 1, 2)
+            target = target[0].permute(3, 0, 1, 2)
+
+        loss_ssim += ssim(input, target, data_range=1., size_average=True)  # return a scalar
+        ct_ssim += 1
+        return 1 - (loss_ssim / ct_ssim)

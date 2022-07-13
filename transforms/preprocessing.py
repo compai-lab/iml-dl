@@ -1,9 +1,12 @@
 import numpy as np
 import torch
+import torch.nn.functional as F
 from monai.transforms import Transform
 from monai.utils.enums import TransformBackends
 from monai.config.type_definitions import NdarrayOrTensor
 from torchvision.io.image import read_image
+from scipy.ndimage import zoom
+import nibabel as nip
 
 
 class ReadImage(Transform):
@@ -17,7 +20,11 @@ class ReadImage(Transform):
         """
         Apply the transform to `img`.
         """
-        return read_image(path)
+        if '.jpeg' in path or '.jpg' in path or '.png' in path:
+            return read_image(path)
+        elif '.nii' in path:
+            img = nip.load(path)
+            return torch.Tensor(np.array(img.get_fdata()))
 
 
 class To01:
@@ -33,7 +40,9 @@ class To01:
         """
         Apply the transform to `img`.
         """
-        return img/self.max_val
+        m = torch.max(img)
+        mi = torch.min(img)
+        return (img - mi) / (m - mi)
 
 
 class ToRGB:
@@ -70,11 +79,37 @@ class AddChannelIfNeeded(Transform):
         """
         Apply the transform to `img`.
         """
-        if len(img.shape) == 2:
-            print(f'Added channel: {(img[None,...].shape)}')
+        if img.shape[0] != 1:
+            # print(f'Added channel: {(img[None,...].shape)}')
             return img[None, ...]
         else:
             return img
+
+
+class Pad(Transform):
+    """
+    Pad with zeros
+    """
+    backend = [TransformBackends.TORCH, TransformBackends.NUMPY]
+    def __init__(self, pid= (1,1)):
+        self.pid = pid
+
+    def __call__(self, img: NdarrayOrTensor) -> NdarrayOrTensor:
+        img_pad = F.pad(img, self.pid, 'constant', 0)
+        return img_pad
+
+
+class Zoom(Transform):
+    """
+    Resize 3d volumes
+    """
+    def __init__(self, input_size):
+        self.input_size = input_size
+        self.mode = 'trilinear' if len(input_size) > 2 else 'bilinear'
+    backend = [TransformBackends.TORCH, TransformBackends.NUMPY]
+
+    def __call__(self, img: NdarrayOrTensor) -> NdarrayOrTensor:
+        return F.interpolate(img[None,  ...],  size=self.input_size, mode=self.mode)[0]
 
 
 class AssertChannelFirst(Transform):
@@ -88,19 +123,9 @@ class AssertChannelFirst(Transform):
         """
         Apply the transform to `img`.
         """
-        assert len(img.shape) == 3,  f'AssertChannelFirst:: Image should have 3 dimensions, instead of {len(img.shape)}'
+        # assert len(img.shape) == 3,  f'AssertChannelFirst:: Image should have 3 dimensions, instead of {len(img.shape)}'
         if img.shape[0] == img.shape[1] and img.shape[0] != img.shape[2]:
-            print(f'Permuted channels {(img.permute(2,0,1)).shape}')
+            # print(f'Permuted channels {(img.permute(2,0,1))[10:138,:,:].shape}')
             return img.permute(2, 0, 1)
         else:
             return img
-
-
-def visualize_slice(img):
-    """
-    Normalize for visualization
-    """
-    # img = img[0][0]
-    img[0][0] = 0
-    img[0][1] = 1
-    return img

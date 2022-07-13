@@ -1,5 +1,5 @@
 from torch.nn import L1Loss, MSELoss
-
+import torch.nn as nn
 
 class L2:
     def __init__(self):

@@ -53,12 +53,12 @@ class DefaultDataset(Dataset):
 
     def get_image_transform(self):
         default_t = transforms.Compose([ReadImage(), To01(), AddChannelIfNeeded(),
-                                        AssertChannelFirst(), transforms.Resize(self.target_size)])
+                                        AssertChannelFirst(), transforms.Resize((128,128))])
         return default_t
 
     def get_label_transform(self):
         default_t = transforms.Compose([ReadImage(), To01(), AddChannelIfNeeded(),
-                                        AssertChannelFirst(), transforms.Resize(self.target_size)])
+                                        AssertChannelFirst(), transforms.Resize(self.target_size[:1])])
         return default_t
 
     def get_label(self, idx):

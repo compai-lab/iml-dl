@@ -13,7 +13,8 @@ class Deformer(nn.Module):
                  int_steps=7,
                  int_downsize=1,
                  bidir=False,
-                 unet_half_res=False,):
+                 unet_half_res=False,
+                 dim=2):
         """
         :param in_channels:
         :param channels:
@@ -25,7 +26,8 @@ class Deformer(nn.Module):
         :param bottleneck:
         :param skip:
         :param add_final:
-        :param name_prefix:
+        :param dim: int
+            input dimensionality (2D, or 3D)
         """
         super(Deformer, self).__init__()
         ndims = len(inshape)
@@ -33,28 +35,41 @@ class Deformer(nn.Module):
         encode_channel_list = list(reversed(channels))[1:]
         decode_channel_list = list(reversed(channels[1:]))
         decode_strides = strides[::-1] or [1]
+        def_channels = 128
 
         self.deformerNN = nn.Sequential()
         for i, (c, s) in enumerate(zip(decode_channel_list, decode_strides)):
             layer_channels = decode_channel_list[i] + encode_channel_list[i]
-            layer_channels = layer_channels + 32 if i > 0 else layer_channels
+            layer_channels = layer_channels + def_channels if i > 0 else layer_channels
 
-            if deconv_mode == 'upsample':
-                # if i > 0:
+            if deconv_mode == 'upsample' or deconv_mode == 'stride':
+                if dim == 3:
+                    self.deformerNN.add_module(name_prefix + "_refine_%i" % i,
+                                               nn.Conv3d(in_channels=layer_channels, out_channels=def_channels,
+                                                         kernel_size=kernel_size, padding=padding))
+                else:
+                    self.deformerNN.add_module(name_prefix + "_refine_%i" % i,
+                                               nn.Conv2d(in_channels=layer_channels, out_channels=def_channels,
+                                                         kernel_size=kernel_size, padding=padding))
+                up_mode = 'trilinear' if dim == 3 else 'bilinear'  # if i > 0:
                 self.deformerNN.add_module(name_prefix + "_upsample_%i" % i,
-                                           nn.Upsample(scale_factor=s, mode='bilinear', align_corners=True))
-                self.deformerNN.add_module(name_prefix + "_refine_%i" % i,
-                                           nn.Conv2d(in_channels=layer_channels, out_channels=32,
-                                          kernel_size=(kernel_size, kernel_size)
-                                          , padding=padding))
+                                           nn.Upsample(scale_factor=s, mode=up_mode))
             else:
-                self.deformerNN.add_module(name_prefix + "_refine_%i" % i,
-                                           nn.ConvTranspose2d(in_channels=layer_channels, out_channels=32,
-                                                   kernel_size=(kernel_size, kernel_size), stride=s,
-                                                   padding=padding,
-                                                   output_padding=1))
+                if dim == 3:
+                    self.deformerNN.add_module(name_prefix + "_refine_%i" % i,
+                                               nn.ConvTranspose3d(in_channels=layer_channels, out_channels=def_channels,
+                                                                  kernel_size=kernel_size, stride=s,
+                                                                  padding=padding, output_padding=1))
+                else:
+                    self.deformerNN.add_module(name_prefix + "_refine_%i" % i,
+                                               nn.ConvTranspose2d(in_channels=layer_channels, out_channels=def_channels,
+                                                                  kernel_size=kernel_size, stride=s,
+                                                                  padding=padding, output_padding=1))
             if norm == 'batch':
-                self.deformerNN.add_module(name_prefix + "_batch_%i" % i, nn.BatchNorm2d(32))
+                if dim == 3:
+                    self.deformerNN.add_module(name_prefix + "_batch_%i" % i, nn.BatchNorm3d(def_channels))
+                else:
+                    self.deformerNN.add_module(name_prefix + "_batch_%i" % i, nn.BatchNorm2d(def_channels))
 
             if act == 'relu':
                 self.deformerNN.add_module(name_prefix + "_act_%i" % i, nn.ReLU(True))
@@ -63,7 +78,8 @@ class Deformer(nn.Module):
             else:
                 self.deformerNN.add_module(name_prefix + "_act_%i" % i, CustomSwish())
 
-        self.flow = nn.Conv2d(32, ndims, kernel_size=3, padding=1)
+        self.flow = nn.Conv2d(def_channels, ndims, kernel_size=3, padding=1) if dim == 2 \
+            else nn.Conv3d(def_channels, ndims, kernel_size=3, padding=1)
         self.flow.weight = nn.Parameter(Normal(0, 1e-5).sample(self.flow.weight.shape))
         self.flow.bias = nn.Parameter(torch.zeros(self.flow.bias.shape))
         # configure optional resize layers (downsize)
@@ -97,7 +113,8 @@ class Deformer(nn.Module):
                 disp_x = ref_layer(torch.cat([encode_history[i_r_level], decode_history[i_r_level]], dim=1))
                 i_r_level += 1
             else:
-                if isinstance(ref_layer, nn.Conv2d) or isinstance(ref_layer, nn.ConvTranspose2d):
+                if isinstance(ref_layer, nn.Conv2d) or isinstance(ref_layer, nn.ConvTranspose2d) \
+                        or isinstance(ref_layer, nn.Conv3d) or isinstance(ref_layer, nn.ConvTranspose3d):
                     disp_x = ref_layer(torch.cat([encode_history[i_r_level], decode_history[i_r_level], disp_x], dim=1))
                     i_r_level += 1
                 else:
