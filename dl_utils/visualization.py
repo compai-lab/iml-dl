@@ -1,13 +1,14 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
-def visualize_slice(img):
+
+def visualize_slice(img, max=1):
     """
     Normalize for visualization
     """
     # img = img[0][0]
     img[0][0] = 0
-    img[0][1] = 1
+    img[0][1] = max
     return img
 
 
@@ -20,15 +21,19 @@ def slice_3d_volume(volume, slice_id, axis):
         return volume[:, :, slice_id]
 
 
-def vis_3d_reconstruction(img, rec, prior=None, slice_id=0):
+def vis_3d_reconstruction(img, rec, slice_id=0, prior=None, gt=None):
     axis = ['Coronal', 'Sagittal', 'Axial']
     figs = []
     for i_ax, ax in enumerate(axis):
         img_slice = slice_3d_volume(img, slice_id, i_ax).T
+        max_value = np.max(img_slice)
         prior_slice = slice_3d_volume(prior, slice_id, i_ax).T if prior is not None else None
         rec_slice = slice_3d_volume(rec, slice_id, i_ax).T
         elements = [img_slice, prior_slice, rec_slice, np.abs(prior_slice - img_slice), np.abs(rec_slice-img_slice)] \
             if prior is not None else [img_slice, rec_slice, np.abs(rec_slice-img_slice)]
+
+        if gt is not None:
+            elements.append(slice_3d_volume(gt, slice_id, i_ax).T)
 
         diffp, axarr = plt.subplots(1, len(elements), gridspec_kw={'wspace': 0, 'hspace': 0})
         diffp.set_size_inches(len(elements) * 4, 4)
@@ -36,7 +41,9 @@ def vis_3d_reconstruction(img, rec, prior=None, slice_id=0):
         for i in range(len(axarr)):
             axarr[i].axis('off')
             c_map = 'gray' if i < np.ceil(len(elements)/2) else 'inferno'
-            axarr[i].imshow(visualize_slice(elements[i]), cmap=c_map, origin='lower')
+            max = max_value if i < np.ceil(len(elements)/2) else 0.5
+            # print(f'max:  {max}')
+            axarr[i].imshow(visualize_slice(elements[i], max), cmap=c_map, origin='lower')
         figs.append(diffp)
     return figs
 

@@ -1,6 +1,25 @@
 from model_zoo.convolutional_autoencoders import Encoder, Decoder
 from model_zoo.deformer import *
+import numpy as np
 
+class Discriminator(nn.Module):
+    def __init__(self):
+        super(Discriminator, self).__init__()
+
+        self.model = nn.Sequential(
+            nn.Linear(int(128*128*128), 512), #FIXME: Hard-coded value
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Linear(512, 256),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Linear(256, 1),
+            nn.Sigmoid(),
+        )
+
+    def forward(self, img):
+        img_flat = img.view(img.size(0), -1)
+        validity = self.model(img_flat)
+
+        return validity
 
 class MorphAEus(nn.Module):
     """
@@ -32,6 +51,7 @@ class MorphAEus(nn.Module):
         self.decoder = Decoder(in_channels=channels[-1], channels=channels, out_ch=out_ch, strides=strides,
                                kernel_size=kernel_size, norm=norm, act=act, deconv_mode=deconv_mode, act_final=act_final,
                                bottleneck=bottleneck, skip=skip, add_final=True, name_prefix='conv_', dim=dim)
+        self.discriminator = Discriminator()
 
         self.nr_ref_channels = nr_ref_channels
         self.nr_channels = len(channels)

@@ -7,6 +7,7 @@ from monai.config.type_definitions import NdarrayOrTensor
 from torchvision.io.image import read_image
 from scipy.ndimage import zoom
 import nibabel as nip
+nip.imageglobals.logger.level = 40
 
 
 class ReadImage(Transform):
@@ -27,6 +28,16 @@ class ReadImage(Transform):
             return torch.Tensor(np.array(img.get_fdata()))
 
 
+class Binarize:
+    def __init__(self, th = 0.1):
+        self.th = th
+        super(Binarize, self).__init__()
+
+    def __call__(self, img):
+        img[img > self.th] = 1
+        img[img < 1] = 0
+        return img
+
 class To01:
     """
     Convert the input to [0,1] scale
@@ -40,9 +51,17 @@ class To01:
         """
         Apply the transform to `img`.
         """
-        m = torch.max(img)
+        # m = torch.max(img)
+        eps = 1e-8
+        m = torch.quantile(img, 0.99)
         mi = torch.min(img)
-        return (img - mi) / (m - mi)
+        # mean = torch.mean(img)
+        # std = torch.std(img)
+        # return (img - mi) / (m - mi)
+        # return (img - mean) / std
+        img = (img - mi) / (m + eps)
+        img[img > 1.2] = 1.2
+        return img
 
 
 class ToRGB:

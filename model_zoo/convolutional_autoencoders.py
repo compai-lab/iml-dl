@@ -139,7 +139,8 @@ class Decoder(nn.Sequential):
                 self.add_module(name_prefix + "_decode_final",
                                 nn.Conv2d(in_channels=layer_channels, out_channels=out_ch, kernel_size=1,
                                           ))
-            # self.add_module(name_prefix + "_act_final", nn.Sigmoid())
+            # self.add_module(name_prefix + "_act_final", nn.Tanh())
+            self.add_module(name_prefix + "_act_final", nn.ReLU())
 
 
 class ConvAutoEncoder(nn.Module):

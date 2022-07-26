@@ -1,11 +1,272 @@
 import torch
 import torch.nn.functional as F
+import torchvision
 import numpy as np
 import math
 from model_zoo import VGGEncoder
 from torch.nn.modules.loss import _Loss
 from pytorch_msssim import ssim, ms_ssim, SSIM, MS_SSIM
+import pystrum.pynd.ndutils as nd
+from abc import ABC, abstractmethod
+from enum import Enum
+import os
+from collections import defaultdict, OrderedDict
+from model_zoo.vgg import PretrainedVGG19FeatureExtractor
 
+
+class PerceptualLoss2(torch.nn.Module):
+    """
+    https://github.com/ninatu/anomaly_detection/
+    """
+    def __init__(self,
+                 reduction='mean',
+                 img_weight=0,
+                 feature_weights=None,
+                 use_feature_normalization=False,
+                 use_L1_norm=False,
+                 use_relative_error=False):
+        super(PerceptualLoss2, self).__init__()
+        """
+        We assume that input is normalized with 0.5 mean and 0.5 std
+        """
+
+        assert reduction in ['none', 'sum', 'mean', 'pixelwise']
+
+        MEAN_VAR_ROOT = os.path.join(
+            os.path.dirname(os.path.abspath(__file__)),
+            'data',
+            'vgg19_ILSVRC2012_object_detection_mean_var.pt')
+
+        self.vgg19_mean = torch.Tensor([0.485, 0.456, 0.406])
+        self.vgg19_std = torch.Tensor([0.229, 0.224, 0.225])
+
+        if use_feature_normalization:
+            self.mean_var_dict = torch.load(MEAN_VAR_ROOT)
+        else:
+            self.mean_var_dict = defaultdict(
+                lambda: (torch.tensor([0.0], requires_grad=False), torch.tensor([1.0], requires_grad=False))
+            )
+
+        self.reduction = reduction
+        self.use_L1_norm = use_L1_norm
+        self.use_relative_error = use_relative_error
+
+        self.model = PretrainedVGG19FeatureExtractor()
+
+        self.set_new_weights(img_weight, feature_weights)
+
+    def set_reduction(self, reduction):
+        self.reduction = reduction
+
+    def forward(self, x, y):
+        loss = 0
+        ct = 1
+        if len(x.shape) == 5:
+            ct = 3
+            input_ = x[0].permute(1, 0, 2, 3)
+            target_ = y[0].permute(1, 0, 2, 3)
+
+            loss += self._forward_(input_, target_)
+
+            input_ = x[0].permute(2, 0, 1, 3)
+            target_ = y[0].permute(2, 0, 1, 3)
+
+            loss += self._forward_(input_, target_)
+
+            x = x[0].permute(3, 0, 1, 2)
+            y = y[0].permute(3, 0, 1, 2)
+
+        loss += self._forward_(x, y)
+        return loss / ct
+
+    def _forward_(self, x, y):
+        # pixel-wise prediction is implemented only if loss is obtained from one layer of vgg
+        if self.reduction == 'pixelwise':
+            assert (len(self.feature_weights) + (self.img_weight != 0)) == 1
+
+        layers = list(self.feature_weights.keys())
+        weights = list(self.feature_weights.values())
+
+        x = self._preprocess(x)
+        y = self._preprocess(y)
+
+        f_x = self.model(x, layers)
+        f_y = self.model(y, layers)
+
+        loss = None
+
+        if self.img_weight != 0:
+            loss = self.img_weight * self._loss(x, y)
+
+        for i in range(len(f_x)):
+            # put mean, var on right device
+            mean, var = self.mean_var_dict[layers[i]]
+            mean, var = mean.to(f_x[i].device), var.to(f_x[i].device)
+            self.mean_var_dict[layers[i]] = (mean, var)
+
+            # compute loss
+            norm_f_x_val = (f_x[i] - mean) / var
+            norm_f_y_val = (f_y[i] - mean) / var
+
+            cur_loss = self._loss(norm_f_x_val, norm_f_y_val)
+
+            if loss is None:
+                loss = weights[i] * cur_loss
+            else:
+                loss += weights[i] * cur_loss
+
+        loss /= (self.img_weight + sum(weights))
+
+        if self.reduction == 'none':
+            return loss
+        elif self.reduction == 'mean':
+            return loss.mean()
+        elif self.reduction == 'sum':
+            return loss.sum()
+        elif self.reduction == 'pixelwise':
+            loss = loss.unsqueeze(1)
+            scale_h = x.shape[2] / loss.shape[2]
+            scale_w = x.shape[3] / loss.shape[3]
+            loss = F.interpolate(loss, scale_factor=(scale_h, scale_w), mode='bilinear')
+            return loss
+        else:
+            raise NotImplementedError('Not implemented reduction: {:s}'.format(self.reduction))
+
+    def set_new_weights(self, img_weight=0, feature_weights=None):
+        self.img_weight = img_weight
+        if feature_weights is None:
+            self.feature_weights = OrderedDict({})
+        else:
+            self.feature_weights = OrderedDict(feature_weights)
+
+    def _preprocess(self, x):
+        assert len(x.shape) == 4
+
+        if x.shape[1] != 3:
+            x = x.expand(-1, 3, -1, -1)
+
+        # denormalize
+        vector = torch.Tensor([0.5, 0.5, 0.5]).reshape(1, 3, 1, 1).to(x.device)
+        x = x * vector + vector
+
+        # normalize
+        x = (x - self.vgg19_mean.reshape(1, 3, 1, 1).to(x.device)) / self.vgg19_std.reshape(1, 3, 1, 1).to(x.device)
+        return x
+
+    def _loss(self, x, y):
+        if self.use_L1_norm:
+            norm = lambda z: torch.abs(z)
+        else:
+            norm = lambda z: z * z
+
+        diff = (x - y)
+
+        if not self.use_relative_error:
+            loss = norm(diff)
+        else:
+            means = norm(x).mean(3).mean(2).mean(1)
+            means = means.detach()
+            loss = norm(diff) / means.reshape((means.size(0), 1, 1, 1))
+
+        # perform reduction
+        if self.reduction == 'pixelwise':
+            return loss.mean(1)
+        else:
+            return loss.mean(3).mean(2).mean(1)
+
+
+class ProgGrowStageType(Enum):
+    trns = 'trns'  # translation stage - increasing resolution twice
+    stab = 'stab'  # stabilization stage - training at a fixed resolution
+
+
+class AbstractPGLoss(torch.nn.Module, ABC):
+    def __init__(self, max_resolution):
+        super().__init__()
+
+        self._resolution = max_resolution
+        self._stage = ProgGrowStageType.stab
+        self._progress = 0
+
+    @abstractmethod
+    def set_stage_resolution(self, stage, resolution):
+        pass
+
+    @abstractmethod
+    def set_progress(self, progress):
+        pass
+
+    @abstractmethod
+    def forward(self, x, y):
+        pass
+
+    @abstractmethod
+    def set_reduction(self, reduction):
+        pass
+
+
+class PGPerceptualLoss(AbstractPGLoss):
+    def __init__(self,  weights_per_resolution, max_resolution=128,
+                 reduction='mean',
+                 use_smooth_pg=False,
+                 use_feature_normalization=False,
+                 use_L1_norm=False,
+                 use_relative_error=False):
+        super(PGPerceptualLoss, self).__init__(max_resolution)
+        self._max_resolution = max_resolution
+        weights_per_resolution = dict()
+        weights_per_resolution[128] = dict()
+        weights_per_resolution[128]['img_weight'] = 0
+        weights_per_resolution[128]['feature_weights'] = {'r22': 1, 'r32': 1, 'r42': 1, 'r52': 1}
+        self._weights_per_resolution = weights_per_resolution
+        self._use_smooth_pg = use_smooth_pg
+        self._loss = PerceptualLoss2(reduction=reduction,
+                                     use_feature_normalization=use_feature_normalization,
+                                     use_L1_norm=use_L1_norm,
+                                     use_relative_error=use_relative_error)
+
+        self._resolution = self._max_resolution
+        self._stage = ProgGrowStageType.stab
+        self._progress = 0
+
+    def set_stage_resolution(self, stage, resolution):
+        self._stage = stage
+        self._resolution = resolution
+        self._progress = 0
+
+    def set_progress(self, progress):
+        self._progress = progress
+
+    def set_reduction(self, reduction):
+        self._loss.reduction = reduction
+
+    def forward(self, x, y):
+        self._loss.set_new_weights(**self._weights_per_resolution[self._resolution])
+        loss = self._loss(x, y)
+
+        if self._use_smooth_pg:
+            if self._stage == ProgGrowStageType.trns and self._progress < 1:
+                prev_res = int(self._resolution / 2)
+                self._loss.set_new_weights(**self._weights_per_resolution[prev_res])
+
+                x = torch.nn.functional.upsample(x, scale_factor=0.5, mode='bilinear')
+                y = torch.nn.functional.upsample(y, scale_factor=0.5, mode='bilinear')
+
+                prev_loss = self._loss(x, y)
+                loss = (1 - self._progress) * prev_loss + self._progress * loss
+
+        return loss
+
+
+class PGRelativePerceptualL1Loss(PGPerceptualLoss):
+    def __init__(self, weights_per_resolution, max_resolution=128, reduction='mean', use_smooth_pg=False):
+        super().__init__(
+            max_resolution, weights_per_resolution,
+            reduction=reduction,
+            use_smooth_pg=use_smooth_pg,
+            use_feature_normalization=False,
+            use_L1_norm=True,
+            use_relative_error=True)
 
 
 class NCC:
@@ -72,7 +333,7 @@ class NCC:
 
         cc = cross * cross / (I_var * J_var + 1e-5)
 
-        return -torch.mean(cc)
+        return 1-torch.mean(cc)
 
 
 class DisplacementRegularizer(torch.nn.Module):
@@ -174,6 +435,54 @@ class DisplacementRegularizer2D(torch.nn.Module):
         return energy
 
 
+class JacobianDeterminant(torch.nn.Module):
+    def __init__(self):
+        super(JacobianDeterminant, self).__init__()
+
+    def forward(self, disp):
+        """
+        jacobian determinant of a displacement field.
+        NB: to compute the spatial gradients, we use np.gradient.
+        Parameters:
+            disp: 2D or 3D displacement field of size [*vol_shape, nb_dims],
+                  where vol_shape is of len nb_dims
+        Returns:
+            jacobian determinant (scalar)
+        """
+
+        # check inputs
+        volshape = disp.shape[:-1]
+        nb_dims = len(volshape)
+        assert len(volshape) in (2, 3), 'flow has to be 2D or 3D'
+
+        # compute grid
+        grid_lst = nd.volsize2ndgrid(volshape)
+        grid = np.stack(grid_lst, len(volshape))
+
+        # compute gradients
+        J = np.gradient(disp + grid)
+
+        # 3D glow
+        if nb_dims == 3:
+            dx = J[0]
+            dy = J[1]
+            dz = J[2]
+
+            # compute jacobian components
+            Jdet0 = dx[..., 0] * (dy[..., 1] * dz[..., 2] - dy[..., 2] * dz[..., 1])
+            Jdet1 = dx[..., 1] * (dy[..., 0] * dz[..., 2] - dy[..., 2] * dz[..., 0])
+            Jdet2 = dx[..., 2] * (dy[..., 0] * dz[..., 1] - dy[..., 1] * dz[..., 0])
+
+            return Jdet0 - Jdet1 + Jdet2
+
+        else:  # must be 2
+
+            dfdx = J[0]
+            dfdy = J[1]
+
+            return dfdx[..., 0] * dfdy[..., 1] - dfdy[..., 0] * dfdx[..., 1]
+
+
 class PerceptualLoss(_Loss):
     """
     """
@@ -205,6 +514,8 @@ class PerceptualLoss(_Loss):
         """
         loss_pl = 0
         ct_pl = 0
+        # input = (input + 1) / 2
+        # target = (target + 1) / 2
         if len(input.shape) == 5:
             input_ = input[0].permute(1, 0, 2, 3)
             target_ = target[0].permute(1, 0, 2, 3)
@@ -239,10 +550,47 @@ class PerceptualLoss(_Loss):
         return loss_pl / ct_pl
 
 
+
+class VGGLoss(torch.nn.Module):
+    def __init__(self, device, feature_layer=35):
+        super(VGGLoss, self).__init__()
+        # Feature extracting using vgg19
+        cnn = torchvision.models.vgg19(pretrained=True).to(device)
+        self.features = torch.nn.Sequential(*list(cnn.features.children())[:(feature_layer + 1)])
+        self.MSE = torch.nn.MSELoss().to(device)
+
+    def normalize(self, tensors, mean, std):
+        if not torch.is_tensor(tensors):
+            raise TypeError('tensor is not a torch image.')
+        for tensor in tensors:
+            for t, m, s in zip(tensor, mean, std):
+                t.sub_(m).div_(s)
+        return tensors
+
+    def forward(self, input, target):
+        ct = 1e-8
+        mse_loss = 0
+        if len(input.shape) == 5:
+            # 3D case:
+            for axial_slice in range(input.shape[-1]):
+                x = input[:, :, :, :, axial_slice]
+                y = target.detach()[:, :, :, :, axial_slice]
+                if x.shape[1] == 1:
+                    x = x.expand(-1, 3, -1, -1)
+                    y = y.expand(-1, 3, -1, -1)
+                # [-1: 1] image to  [0:1] image---------------------------------------------------(1)
+                x = (x+1) * 0.5
+                y = (y+1) * 0.5
+                # https://pytorch.org/docs/stable/torchvision/models.html
+                x.data = self.features(self.normalize(x.data, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]))
+                y.data = self.features(self.normalize(y.data, mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]))
+                mse_loss += F.mse_loss(x, y.data)
+        return mse_loss / ct
+
+
 class SSIMLoss(_Loss):
     """
     """
-
     def __init__(
         self,
         reduction: str = 'mean',

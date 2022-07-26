@@ -8,6 +8,17 @@ def zero_init(m):
             nn.init.zeros_(m.bias)
 
 
+def xavier_init_(m):
+    if isinstance(m, (nn.Linear, nn.Conv2d, nn.ConvTranspose2d, nn.Conv3d, nn.ConvTranspose3d)):
+        nn.init.xavier_normal(m.weight)
+        if m.bias is not None:
+            m.bias.data.fill_(0)
+    elif isinstance(m, (nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d)):
+        m.weight.data.fill_(1)
+        if m.bias is not None:
+            m.bias.data.fill_(0)
+
+
 def kaiming_init(m):
     if isinstance(m, (nn.Linear, nn.Conv2d, nn.ConvTranspose2d, nn.Conv3d, nn.ConvTranspose3d)):
         nn.init.kaiming_normal(m.weight)
