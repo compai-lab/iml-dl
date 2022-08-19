@@ -526,7 +526,7 @@ class LPIPS:
 
     def __init__(self, net = 'alex', eval_mode=True, device = 'cuda'):
         # For training eval_mode needs to be False
-        self.lpips = lpips.LPIPS(net=net, eval_mode=eval_mode).to(device)
+        self.lpips = lpips.LPIPS(net=net, eval_mode=eval_mode, verbose=False).to(device)
 
     def __call__(self, x, y):
         return torch.squeeze(self.lpips(x,y))
