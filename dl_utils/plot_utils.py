@@ -6,17 +6,45 @@ import torch
 import os
 from optim.losses.vxm_losses import *
 
+from matplotlib.animation import FuncAnimation, PillowWriter
+
+import wandb
+
 class PlotResults():
 
     def __init__(self, spatial_data_info):
         self.spatial_data_info = spatial_data_info
 
-    def transform_all_inputs(self, inputs = list):
+    def transform_all_inputs(self, inputs = list, isVector = False):
+        '''
+        Transforms list of tensors to list of numpys via sitk with spatial information
+        '''
+
+        #check if batch dimension still included
+        for i, inp in enumerate(inputs):
+            if len(inp) == 4:
+                inputs[i] = torch.squeeze(inp, dim = 0)
+
         inputs_detached = [i.cpu().detach() for i in inputs]
-        inputs_sitk = [torchToSitk(i, self.spatial_data_info) for i in inputs_detached]
+        inputs_sitk = [torchToSitk(i, self.spatial_data_info, isVector=isVector) for i in inputs_detached]
         inputs_np = [sitk.GetArrayFromImage(i) for i in inputs_sitk]
 
         return inputs_np
+
+    def transform_list_torch_to_sitk(self, inputs = list, isVector = False):
+        '''
+        Transforms list of tensors to list of numpys via sitk with spatial information
+        '''
+
+        #check if batch dimension still included
+        for i, inp in enumerate(inputs):
+            if len(inp) == 4:
+                inputs[i] = torch.squeeze(inp, dim = 0)
+
+        inputs_detached = [i.cpu().detach() for i in inputs]
+        inputs_sitk = [torchToSitk(i, self.spatial_data_info, isVector=isVector) for i in inputs_detached]
+
+        return inputs_sitk
 
 
     def plot_template_difference(self, template_before, template_after, vis_factor=1):
@@ -109,7 +137,14 @@ class PlotResults():
 
     def save_tensor_to_image_path(self, image_tensor, path, title):
 
-        [image_np] = self.transform_all_inputs([image_tensor])
+        if type(image_tensor) == sitk.Image:
+            image_np = sitk.GetArrayFromImage(image_tensor)
+
+        elif type(image_tensor) == torch.Tensor:
+            [image_np] = self.transform_all_inputs([image_tensor])
+
+        elif type(image_tensor) == np.ndarray:
+            image_np = image_tensor
 
         fig, ax = plt.subplots()
         ax.imshow(image_np, cmap='gray')
@@ -147,6 +182,50 @@ class PlotResults():
             return fig, jacdet if return_value else fig
 
 
+class PlotMotionSimulation(object):
+    """
+    Creates an animation of multiple numpy images from a list
+    Adapted source: https://matplotlib.org/2.0.2/examples/animation/dynamic_image.html
+    """
+
+    def __init__(self, img_list, title_list = None) -> None:
+        self.img_list = img_list
+        self.title_list = title_list
+        self.noImg = len(self.img_list)
+        self.imgSize = img_list[0].shape
+        self.fig = plt.figure()
+        # self.ax = plt.axes(xlim=(0, 4), ylim=(-2, 2))
+        self.im = plt.imshow(img_list[0], cmap='gray')
+
+    # def init_animation(self):
+    #     dummy = np.zeros(self.imgSize)
+    #     self.im = self.ax.imshow(dummy)
+    #     return self.im
+
+    def update_animation(self, i, *args, **kwargs):
+        self.im.set_array(self.img_list[i])
+        plt.show()
+        return [self.im]
+
+    def create_animation(self, filename, path, startIndex=0, revert=True):
+
+        frame_order = []  # Index of image in list
+
+        for i in range(self.noImg):
+            frame_order.append(i)
+
+        if revert:
+            for i in range(self.noImg, 0, -1):
+                frame_order.append(i - 1)
+
+        ani = FuncAnimation(self.fig, self.update_animation, frames=frame_order, interval=1000, blit=True)
+        # Blit = True makes it only redraw parts which have not been drawn before
+        writer = PillowWriter(fps=10)
+        ani.save('{}/{}.gif'.format(path,filename), writer=writer)
+        # plt.show()
+
+        return ani
+
 
 
 # Helper functions
@@ -183,11 +262,12 @@ def sitkToTorch(sitk_image, transpose = True):
     return image_tensor, tensor_info
 
 # Transform tto world coordinate system
-def torchToSitk(torch_tensor, tensor_info, transpose = True):
+def torchToSitk(torch_tensor, tensor_info, transpose = True, isVector = False):
     """    Args:
         torch_tensor: torch tensor (cpu)
         tensor_info: dictionary
         transpose: if data was transposed at load time or not
+        isVector: pass if tensor is a vector (e.g. for displacement)
         Returns:
     """
     np_image = torch_tensor.numpy()
@@ -200,7 +280,7 @@ def torchToSitk(torch_tensor, tensor_info, transpose = True):
         spacing = tensor_info['spacing'][::-1]
         origin = tensor_info['origin'][::-1]
 
-    sitk_image = sitk.GetImageFromArray(np_image)
+    sitk_image = sitk.GetImageFromArray(np_image, isVector=isVector)
     sitk_image.SetSpacing(spacing)
     sitk_image.SetOrigin(origin)
     return sitk_image
@@ -312,11 +392,21 @@ def plot_warped_grid(ax, disp, bg_img=None, interval=3, title="$\mathcal{T}_\phi
 
     return ax
 
+def save_npimage_to_path(np_array, path, mode, title, log_wandb = False, wandb_title = ''):
 
-def save_figure_to_path(fig, path, title):
+    fig, ax = plt.subplots()
+    img = ax.imshow(np_array, cmap='gray', clim=[0, 1])
+    save_figure_to_path(fig, path, mode, title, log_wandb=False)
+
+    if log_wandb:
+        wandb.log({mode + "/" + wandb_title: [wandb.Image(np_array, caption=title)]})
+
+def save_figure_to_path(fig, path, mode, title, log_wandb = False, wandb_title = ''):
 
     if not os.path.exists(path):
         os.makedirs(path)
 
     fig.savefig(os.path.join(path,title))
 
+    if log_wandb:
+        wandb.log({mode + "/" + wandb_title: wandb.Image(os.path.join(path,title) + '.png', caption=title)})
