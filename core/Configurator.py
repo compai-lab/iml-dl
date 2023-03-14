@@ -103,7 +103,8 @@ class DLConfigurator(object):
 
         downstream_datasets = dict()
         for dataset_name in data_loader_config['datasets']:
-            data = data_loader_module({**(data_loader_config['params']['args']), **(data_loader_config['datasets'][dataset_name])})
+            data = data_loader_module({**(data_loader_config['params']['args']),
+                                       **(data_loader_config['datasets'][dataset_name]['args'])})
             downstream_datasets[dataset_name] = data.test_dataloader()
         return downstream_datasets
 
