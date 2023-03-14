@@ -64,6 +64,7 @@ class ResidualBlock(nn.Module):
 class Encoder(nn.Module):
     def __init__(self, cdim=3, zdim=512, channels=(64, 128, 256, 512, 512, 512), image_size=256, conditional=False,
                  cond_dim=10):
+
         super(Encoder, self).__init__()
         self.zdim = zdim
         self.cdim = cdim
