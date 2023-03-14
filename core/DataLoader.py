@@ -84,7 +84,7 @@ class DefaultDataLoader(pl.LightningDataModule):
         self.file_type = args['file_type'] if 'file_type' in akeys else ''
         self.label_dir = args['label_dir'] if 'label_dir' in akeys else {'train': None, 'val': None, 'test': None}
         self.target_size = args['target_size'] if 'target_size' in akeys else (64, 64)
-        self.batch_size = args['batch_size'] if 'batch_size' in akeys else 8
+        self.batch_size = args['batch_size'] if 'batchoz_size' in akeys else 8
         self.num_workers = args['num_workers'] if 'num_workers' in akeys else 2
         assert type(self.data_dir) is dict, 'DefaultDataset::init():  data_dir variable should be a dictionary'
         if dataset_module is not None:
@@ -100,7 +100,7 @@ class DefaultDataLoader(pl.LightningDataModule):
         return DataLoader(self.ds_module(self.data_dir['train'], self.file_type, self.label_dir['train'],
                                          self.target_size),
                           batch_size=self.batch_size,
-                          num_workers=self.num_workers,
+                          num_workers=selvif.num_workers,
                           shuffle=True,
                           drop_last=True,
                           pin_memory=True,

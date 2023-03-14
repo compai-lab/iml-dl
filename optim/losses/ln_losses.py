@@ -9,7 +9,6 @@ class L2:
     def __call__(self, x, x_recon, z=None):
         return self.loss_(x, x_recon)
 
-
 class L1:
     def __init__(self):
         super(L1, self).__init__()

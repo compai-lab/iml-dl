@@ -8,7 +8,7 @@ import wandb
 import copy
 from dl_utils import *
 from torchsummary import summary
-from torch.nn import MSELoss
+from torch.nn import MSELoss, KLDivLoss
 from torch.optim.adam import Adam
 from torch.optim.lr_scheduler import ExponentialLR, CosineAnnealingLR, ReduceLROnPlateau
 from optim.losses import PerceptualLoss
@@ -51,7 +51,6 @@ class EarlyStopping():
                 print('INFO: Early stopping')
                 return True
 
-
 class Trainer:
     def __init__(self, training_params, model, data, device, log_wandb=True):
         """
@@ -81,9 +80,19 @@ class Trainer:
         self.early_stopping = EarlyStopping(patience=patience)
 
         self.log_wandb = log_wandb
+        if log_wandb:
+            wandb.watch(self.model)
 
-        wandb.watch(self.model)
-        input_size = (1, self.training_params['input_size'][0],  self.training_params['input_size'][1])
+        nc = self.training_params['nc'] if 'nc' in self.training_params.keys() else 1
+        if len(self.training_params['input_size']) == 2:
+            input_size = (nc, self.training_params['input_size'][0],  self.training_params['input_size'][1])
+        elif len(self.training_params['input_size']) == 3:
+            input_size = (nc, self.training_params['input_size'][0], self.training_params['input_size'][1], self.training_params['input_size'][2])
+        elif len(self.training_params['input_size']) == 1:
+            input_size = self.training_params['input_size']
+        else:
+            pass
+
         print(f'Input size of summery is: {input_size}')
         summary(model, input_size)
 
@@ -120,8 +129,10 @@ class Trainer:
 
         self.criterion_MSE = MSELoss().to(device)
         self.criterion_PL = PerceptualLoss(device=device)
+        #self.criterion_KLD = KLDivLoss().to(device)
+
         self.min_val_loss = np.inf
-        self.alfa = training_params['alfa'] if 'alfa' in training_params.keys() else 0
+        self.alpha = training_params['alpha'] if 'alpha' in training_params.keys() else 0
 
         self.best_weights = self.model.state_dict()
         self.best_opt_weights = self.optimizer.state_dict()

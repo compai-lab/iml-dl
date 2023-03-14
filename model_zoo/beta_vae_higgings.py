@@ -3,6 +3,7 @@ import torch.nn.functional as F
 from net_utils.initialize import *
 from net_utils.variational import reparameterize
 
+
 # C. P. Burgess, I. Higgins, A. Pal, L. Matthey, N. Watters, G. Desjardins, and A. Lerchner.
 # Understanding disentangling in β-vae. arXiv preprint arXiv:1804.03599, 2018.
 #
@@ -28,28 +29,29 @@ class BetaVAE_H(nn.Module):
     Model proposed in original beta-VAE paper(Higgins et al, ICLR, 2017).
     ''' changed z_dim to 32 as in celeb_A setup, and nc to 1 for medical images'''
     """
+
     def __init__(self, z_dim=32, nc=1, additional_layer=True):
         super(BetaVAE_H, self).__init__()
         self.z_dim = z_dim
         self.nc = nc
         if additional_layer:
             self.encoder = nn.Sequential(
-                nn.Conv2d(nc, 32, 4, 2, 1),          # B,  32, 32, 32
+                nn.Conv2d(nc, 32, 4, 2, 1),  # B,  32, 32, 32
                 nn.ReLU(True),
-                nn.Conv2d(32, 32, 4, 2, 1),          # B,  32, 16, 16
+                nn.Conv2d(32, 32, 4, 2, 1),  # B,  32, 16, 16
                 nn.ReLU(True),
                 ####  Added for larger inputs
                 nn.Conv2d(32, 32, 4, 2, 1),  # B,  32, 16, 16
                 nn.ReLU(True),
                 ######
-                nn.Conv2d(32, 32, 4, 2, 1),          # B,  32,  8,  8
+                nn.Conv2d(32, 32, 4, 2, 1),  # B,  32,  8,  8
                 nn.ReLU(True),
-                nn.Conv2d(32, 32, 4, 2, 1),          # B,  32,  4,  4
+                nn.Conv2d(32, 32, 4, 2, 1),  # B,  32,  4,  4
                 nn.ReLU(True),
-                nn.Conv2d(32, 256, 4, 1),            # B, 256,  1,  1
+                nn.Conv2d(32, 256, 4, 1),  # B, 256,  1,  1
                 nn.ReLU(True),
-                View((-1, 256*1*1)),                 # B, 256
-                nn.Linear(256, z_dim*2),             # B, z_dim*2
+                View((-1, 256 * 1 * 1)),  # B, 256
+                nn.Linear(256, z_dim * 2),  # B, z_dim*2
             )
             self.decoder = nn.Sequential(
                 nn.Linear(z_dim, 256),  # B, 256
@@ -71,18 +73,18 @@ class BetaVAE_H(nn.Module):
             )
         else:
             self.encoder = nn.Sequential(
-                nn.Conv2d(nc, 32, 4, 2, 1),          # B,  32, 32, 32
+                nn.Conv2d(nc, 32, 4, 2, 1),  # B,  32, 32, 32
                 nn.ReLU(True),
-                nn.Conv2d(32, 32, 4, 2, 1),          # B,  32, 16, 16
+                nn.Conv2d(32, 32, 4, 2, 1),  # B,  32, 16, 16
                 nn.ReLU(True),
-                nn.Conv2d(32, 32, 4, 2, 1),          # B,  32,  8,  8
+                nn.Conv2d(32, 32, 4, 2, 1),  # B,  32,  8,  8
                 nn.ReLU(True),
-                nn.Conv2d(32, 32, 4, 2, 1),          # B,  32,  4,  4
+                nn.Conv2d(32, 32, 4, 2, 1),  # B,  32,  4,  4
                 nn.ReLU(True),
-                nn.Conv2d(32, 256, 4, 1),            # B, 256,  1,  1
+                nn.Conv2d(32, 256, 4, 1),  # B, 256,  1,  1
                 nn.ReLU(True),
-                View((-1, 256*1*1)),                 # B, 256
-                nn.Linear(256, z_dim*2),             # B, z_dim*2
+                View((-1, 256 * 1 * 1)),  # B, 256
+                nn.Linear(256, z_dim * 2),  # B, z_dim*2
             )
             self.decoder = nn.Sequential(
                 nn.Linear(z_dim, 256),  # B, 256
@@ -113,13 +115,19 @@ class BetaVAE_H(nn.Module):
         z = reparameterize(mu, logvar)
         x_recon = self._decode(z)
 
-        return x_recon, {'z_mu': mu, 'z_logvar': logvar}
+        return x_recon, {'z_mu': mu, 'z_logvar': logvar, 'z': z}
 
     def _encode(self, x):
         return self.encoder(x)
 
     def _decode(self, z):
         return self.decoder(z)
+
+    def decode(self, z):
+        return self.decoder(z)
+
+    def encode(self,x):
+    return self.forward(x)
 
 
 class VAEHigLoss:
@@ -132,13 +140,13 @@ class VAEHigLoss:
         self.C_max = torch.Tensor([self.max_capacity])
         self.C_stop_iter = self.Capacity_max_iter
         self.loss_type = loss_type
-        self.gamma=gamma
+        self.gamma = gamma
 
     def __call__(self, x_recon, x, z):
         self.num_iter += 1
         mu = z['z_mu']
         log_var = z['z_logvar']
-        kld_weight = 0.008 # 64/8000  # Account for the minibatch samples from the dataset
+        kld_weight = 16/100  # 64/737280  # Account for the minibatch samples from the dataset
 
         recons_loss = F.mse_loss(x_recon, x)
 
@@ -154,6 +162,7 @@ class VAEHigLoss:
             raise ValueError('Undefined loss type.')
 
         return loss
+
 
 if __name__ == '__main__':
     pass

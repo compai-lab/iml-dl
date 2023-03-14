@@ -10,6 +10,15 @@ import torch
 
 from dl_utils.config_utils import check_config_file, import_module, set_seed
 
+MNIST_REG_TYPES = {
+    "digit_identity": 0,
+    "area": 1,
+    "length": 2,
+    "thickness": 3,
+    "slant": 4,
+    "width": 5,
+    "height": 6
+}
 
 class DLConfigurator(object):
     """
@@ -26,12 +35,16 @@ class DLConfigurator(object):
         :param config_file: file
             config.yaml file that contains the DL configuration
         """
+
         self.dl_config = check_config_file(config_file)
         if self.dl_config is None:
             print('[Configurator::init] ERROR: Invalid configuration file. Configurator will exit...')
             return
 
         # set seeds
+        #if 'seed' in self.dl_config['configurator']['params'].keys():
+        #    set_seed(self.dl_config['configurator']['params']['seed'])
+        #else:
         set_seed(2109)
 
         # init model and device
@@ -77,6 +90,7 @@ class DLConfigurator(object):
             dst_config = self.dl_config['downstream_tasks'][dst_name]
             downstream_class = import_module(dst_config['module_name'], dst_config['class_name'])
             data = self.load_data(dst_config['data_loader'], train=False)
+
             if 'params' in dst_config.keys():
                 dst = downstream_class(dst_name, self.model, self.device, data, dst_config['checkpoint_path'],
                                        **dst_config['params'])
@@ -101,9 +115,15 @@ class DLConfigurator(object):
         if train:
             return data_loader_module(**(data_loader_config['params']))
 
-        downstream_datasets = dict()
-        for dataset_name in data_loader_config['datasets']:
-            data = data_loader_module({**(data_loader_config['params']['args']), **(data_loader_config['datasets'][dataset_name])})
-            downstream_datasets[dataset_name] = data.test_dataloader()
-        return downstream_datasets
+        if 'datasets' in data_loader_config.keys():
+            downstream_datasets = dict()
+            for dataset_name in data_loader_config['datasets']:
+                data = data_loader_module(
+                    {**(data_loader_config['params']['args']), **(data_loader_config['datasets'][dataset_name])})
+                downstream_datasets[dataset_name] = data.test_dataloader()
+            return downstream_datasets
+        else:
+            data = data_loader_module({**(data_loader_config['params']['args'])})
+            return data.test_dataloader()
+
 

@@ -57,6 +57,12 @@ class AAE(nn.Module):
         for m in self._modules:
             normal_init(self._modules[m], mean, std)
 
+    def decode(self, z): # only for display
+        return self.G(z)
+
+    def encode(self,x):
+        return self.E(x)
+
 
 class Generator(nn.Module):
     def __init__(self, z_size, d=64, channels=1, extra_layers=0):

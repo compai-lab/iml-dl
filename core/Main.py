@@ -9,9 +9,10 @@ import argparse
 import wandb
 from datetime import datetime
 import sys
-sys.path.insert(0, '../iml-dl')
+sys.path.insert(0, './')
 from dl_utils.config_utils import *
 import warnings
+import os
 
 
 class Main(object):
@@ -28,6 +29,14 @@ class Main(object):
         self.config_file['trainer']['params']['checkpoint_path'] += date_time
         for idx, dst_name in enumerate(self.config_file['downstream_tasks']):
             self.config_file['downstream_tasks'][dst_name]['checkpoint_path'] += date_time
+
+        # ## Add by Maxime to save config
+        checkpoint_path = f"{self.config_file['trainer']['params']['checkpoint_path']}/"
+        if not os.path.exists(checkpoint_path):
+            os.makedirs(checkpoint_path)
+        path_config = f"{checkpoint_path}/config.yaml"
+        with open(path_config, "w+") as f:
+            yaml.dump(self.config_file, f, sort_keys=False)
 
         # Initialize Configurator
         if self.config_file['configurator'] is None:
@@ -46,7 +55,7 @@ class Main(object):
             yaml=config_file,
             params=configurator.dl_config
         )
-
+        #if log_wandb:
         wandb.init(project=exp_name, name=method_name, config=config_dict, id=date_time)
 
         device = 'cuda' if config_file['device'] == 'gpu' else 'cpu'
@@ -58,7 +67,6 @@ class Main(object):
             configurator.start_training(checkpoint)
         else:
             configurator.start_evaluations(checkpoint['model_weights'])
-
 
 def add_args(parser):
     """

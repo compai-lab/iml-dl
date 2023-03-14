@@ -1,13 +1,13 @@
 name: ConvAE (Cifar-10)
 target_size: &target_size !!python/tuple [64, 64]
-train_batch_size: &tbatch_size 64
-downstream_batch_size: &dbatch_size 100
-checkpoint_path: &checkpoint_path ./projects/dummy_project/weights/cifar-10/
+train_batch_size: &tbatch_size 16
+downstream_batch_size: &dbatch_size 10
+checkpoint_path: &checkpoint_path ./projects/rl_project/weights/ACDC/
 #
 # Experiment
 #
 experiment:
-  name: Dummy_Project(cifar)
+  name: Rl_project ACDC
   task: train
   weights:  #'./projects/dummy_project/weights/cifar-10/ae/best_model.pt'
 #
@@ -20,7 +20,7 @@ configurator:
 # Model
 #
 model:
-  module_name: model_zoo.convolutional_autoencoders
+  module_name: model_zoo.vae_hahn
   class_name: ConvAutoEncoder
   params:
     in_channels: 1
@@ -55,16 +55,12 @@ trainer:
       lr: 5.0e-4
   # Data Loader
   data_loader:
-# Dog
-    module_name: data.cifar10_loader
-    class_name: Cifar10Loader
+    module_name: data.ACDC_loader
+    class_name: ACDCLoader
     params:
       args:
-        target_size: *target_size
-        batch_size: *tbatch_size
-        classes:
-          - 'dog'
-          - 'cat'
+        root_dir: '/home/iml/maxime.difolco/Documents/data/ACDC/rl_ACDC/rl_maskMyo/'
+        csv_file: '/home/iml/maxime.difolco/Documents/data/ACDC/rl_ACDC/data_info_rl_maskMyo.csv'
 # Downstream tasks
 downstream_tasks:
   cifar10:

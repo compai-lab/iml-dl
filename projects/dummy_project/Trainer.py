@@ -3,6 +3,7 @@ from time import time
 import wandb
 import logging
 from optim.losses.image_losses import *
+import matplotlib.pyplot as plt
 
 
 class PTrainer(Trainer):
@@ -67,6 +68,8 @@ class PTrainer(Trainer):
             epoch_losses_pl.append(epoch_loss_pl)
 
             end_time = time()
+
+
             print('Epoch: {} \tTraining Loss: {:.6f} , computed in {} seconds for {} samples'.format(
                 epoch, epoch_loss, end_time - start_time, count_images))
             wandb.log({"Train/Loss_": epoch_loss, '_step_': epoch})
@@ -92,6 +95,7 @@ class PTrainer(Trainer):
                 'test_total': 0
             }
         """
+
         self.test_model.load_state_dict(model_weights)
         self.test_model.to(self.device)
         self.test_model.eval()

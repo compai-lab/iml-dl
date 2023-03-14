@@ -1,6 +1,8 @@
 import torchvision.transforms as transforms
 import pytorch_lightning as pl
 import hub
+import torch
+import torch.utils.data as data_utils
 
 
 class CelebA(pl.LightningDataModule):
@@ -44,4 +46,5 @@ class CelebA(pl.LightningDataModule):
                                       batch_size=self.batch_size,
                                       shuffle=False,
                                       transform=self.trans)
+
         return dataloader

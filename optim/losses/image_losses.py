@@ -1,9 +1,11 @@
 import torch
 import torch.nn.functional as F
+from torch.nn import BCELoss
 import numpy as np
 import math
 from model_zoo import VGGEncoder
 from torch.nn.modules.loss import _Loss
+from optim.losses.ln_losses import L2
 
 
 class NCC:
@@ -71,6 +73,14 @@ class NCC:
         cc = cross * cross / (I_var * J_var + 1e-5)
 
         return -torch.mean(cc)
+
+class BCE_loss:
+    def __init__(self):
+        super(BCE_loss, self).__init__()
+        self.loss_ = BCELoss(reduction="sum")
+
+    def __call__(self, x_recon, x , z=None):
+        return self.loss_(x_recon, x)
 
 
 class DisplacementRegularizer2D(torch.nn.Module):
@@ -156,3 +166,108 @@ class PerceptualLoss(_Loss):
         for output_feature, input_feature in zip(output_features, input_features):
             loss_pl += F.mse_loss(output_feature, input_feature)
         return loss_pl
+
+def compute_reg_loss(z, attr,factor):
+    reg_loss = 0.0
+    reg_dim_real = attr.size()[1]
+    for dim in range(reg_dim_real):
+        x_ = z[:, dim]
+        reg_loss += reg_loss_sign(x_, attr[:, dim], factor)
+
+    return reg_loss
+
+def reg_loss_sign(latent_code, attribute, factor):
+    """
+    Computes the regularization loss given the latent code and attribute
+    Args:
+        latent_code: torch Variable, (N,)
+        attribute: torch Variable, (N,)
+        factor: parameter for scaling the loss
+    Returns
+        scalar, loss
+    """
+    # compute latent distance matrix
+    latent_code = latent_code.view(-1, 1).repeat(1, latent_code.shape[0])
+    lc_dist_mat = (latent_code - latent_code.transpose(1, 0)).view(-1, 1)
+
+    # compute attribute distance matrix
+    attribute = attribute.view(-1, 1).repeat(1, attribute.shape[0])
+    attribute_dist_mat = (attribute - attribute.transpose(1, 0)).view(-1, 1)
+
+    # compute regularization loss
+    loss_fn = torch.nn.L1Loss()
+    lc_tanh = torch.tanh(lc_dist_mat * factor).cpu()
+    attribute_sign = torch.sign(attribute_dist_mat)
+    sign_loss = loss_fn(lc_tanh, attribute_sign.float())
+
+    return sign_loss
+
+
+class AR_VAEPatiLoss:
+
+    def __init__(self, beta, gamma, factor, reg_dim):
+        super(AR_VAEPatiLoss, self).__init__()
+        self.beta = beta
+        self.gamma = gamma
+        self.factor = factor
+        self.reg_dim = reg_dim
+
+    def __call__(self, x_recon, x, z, attr, all= False):
+
+        kld_weight = 1 #0.0128  # Account for the minibatch samples from the dataset
+        batch_size = x.size(0)
+        # Rec Loss
+        recons_loss = F.binary_cross_entropy_with_logits(x_recon, x, reduction='sum').div(batch_size)
+        # pl_loss = PerceptualLoss()
+        # l2_loss = L2()
+        # recons_loss = pl_loss(x_recon,x) + self.alpha * l2_loss(x_recon,x)
+
+        # KLD Loss
+        kld_loss = torch.distributions.kl.kl_divergence(z['z_dist'], z['prior_dist'])
+        kld_loss = kld_loss.sum(1).mean()
+
+        c = 0.0
+        beta_loss = self.beta * kld_weight * (kld_loss - c).abs()
+
+        # Reg loss
+        reg_loss = 0.0
+        reg_dim_real = attr.size()[1]
+        for dim in range(reg_dim_real):
+            x_ = z['z_tilde'][:, dim]
+            reg_loss += self.reg_loss_sign(x_, attr[:,dim], self.factor)
+
+        global_loss = recons_loss + beta_loss + self.gamma * reg_loss #
+
+        #print(beta_loss, reg_loss ,pl_loss(x_recon,x), l2_loss(reconstructed_images, transformed_images))
+
+        if all:
+            return global_loss, recons_loss, beta_loss, reg_loss
+        else:
+            return global_loss
+
+    @staticmethod
+    def reg_loss_sign(latent_code, attribute, factor):
+        """
+        Computes the regularization loss given the latent code and attribute
+        Args:
+            latent_code: torch Variable, (N,)
+            attribute: torch Variable, (N,)
+            factor: parameter for scaling the loss
+        Returns
+            scalar, loss
+        """
+        # compute latent distance matrix
+        latent_code = latent_code.view(-1, 1).repeat(1, latent_code.shape[0])
+        lc_dist_mat = (latent_code - latent_code.transpose(1, 0)).view(-1, 1)
+
+        # compute attribute distance matrix
+        attribute = attribute.view(-1, 1).repeat(1, attribute.shape[0])
+        attribute_dist_mat = (attribute - attribute.transpose(1, 0)).view(-1, 1)
+
+        # compute regularization loss
+        loss_fn = torch.nn.L1Loss()
+        lc_tanh = torch.tanh(lc_dist_mat * factor).cpu()
+        attribute_sign = torch.sign(attribute_dist_mat)
+        sign_loss = loss_fn(lc_tanh, attribute_sign.float())
+
+        return sign_loss
