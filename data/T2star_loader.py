@@ -1,5 +1,4 @@
 import pathlib
-import pickle
 import torch
 from torch.utils.data import DataLoader, Dataset
 import pytorch_lightning as pl
@@ -24,63 +23,51 @@ class T2starDataset(Dataset):
     bm_thr : float
         threshold for including / excluding slices based on percentage of
         brainmask voxels
-    complex_valued : bool
-        whether the loaded kspace data should be complex valued (shape
-        [1, N_echoes, N_PE, N_read]) or real valued (shape [2, N_echoes, N_PE, N_read])
+    normalize : str
+        whether to normalize the data with maximum absolute value of image
+        ('abs_image') or line by line ('line_wise')
+    soft_mask : bool
+        whether a soft mask (values between 0 and 1 corresponding to motion
+        score) should be loaded
+    subst_with_orig : None or True
+        whether lines with motion below a threshold should be substituted with
+        motion-free data
+    magn_phase : bool
+        True, if magnitude and phase of the complex data to be loaded on
+        separate channels, False, if real and imaginary part to be loaded
+    input_2d : bool
+        whether input should be loaded as 2D (echoes on different channels)
+    overfit_one_sample : bool
+        whether only one sample should be loaded to test overfitting
     """
 
     def __init__(self, path, only_bm_slices=False, bm_thr=0.1, normalize="abs_image",
-                 soft_mask=False, subst_with_orig=None, scale_target=False, MultiClass=False,
-                 log_transform=False, crop_readout=False, complex_valued=False,
-                 magn_phase=False, input_2d = False, overfit_one_sample=False, use_dataset_cache=False,
-                 dataset_cache_file="dataset_cache.pkl"):
+                 soft_mask=False, subst_with_orig=None, crop_readout=False,
+                 magn_phase=False, input_2d=False, overfit_one_sample=False):
         super().__init__()
 
         self.path = path
-        self.dataset_cache_file = pathlib.Path(dataset_cache_file)
         self.raw_samples = []
         self.only_bm_slices = only_bm_slices
         self.bm_thr = bm_thr
         self.normalize = normalize
-        self.log_transform = log_transform
         self.crop_readout = crop_readout
         self.overfit_one_sample = overfit_one_sample
-        self.complex_valued = complex_valued
         self.magn_phase = magn_phase
         self.input_2d = input_2d
         self.soft_mask = soft_mask
         self.subst_with_orig = subst_with_orig
-        self.scale_target = scale_target
-        self.MultiClass = MultiClass
 
-        # load dataset cache if it is there and user wants to use it
-        if self.dataset_cache_file.exists() and use_dataset_cache:
-            with open(self.dataset_cache_file, "rb") as f:
-                dataset_cache = pickle.load(f)
-        else:
-            dataset_cache = {}
+        files = list(pathlib.Path(self.path).iterdir())
+        for filename in sorted(files):
+            slices_ind = self._get_slice_indices(filename)
 
-        # check if the dataset is in the cache
-        # if there, use that metadata, if not, regenerate it
-        if dataset_cache.get(self.path) is None or not use_dataset_cache:
-            files = list(pathlib.Path(self.path).iterdir())
-            for filename in sorted(files):
-                slices_ind = self._get_slice_indices(filename)
+            new_samples = []
+            for slice_ind in slices_ind:
+                new_samples.append(T2StarRawDataSample(filename, slice_ind))
 
-                new_samples = []
-                for slice_ind in slices_ind:
-                    new_samples.append(T2StarRawDataSample(filename, slice_ind))
+            self.raw_samples += new_samples
 
-                self.raw_samples += new_samples
-
-            if dataset_cache.get(self.path) is None and use_dataset_cache:
-                dataset_cache[self.path] = self.raw_samples
-                logging.info(f"Saving dataset cache to {self.dataset_cache_file}.")
-                with open(self.dataset_cache_file, "wb") as cache_f:
-                    pickle.dump(dataset_cache, cache_f)
-        else:
-            logging.info(f"Using dataset cache from {self.dataset_cache_file}.")
-            self.raw_samples = dataset_cache[self.path]
 
     def _get_slice_indices(self, filename):
         with h5py.File(filename, "r") as hf:
@@ -117,22 +104,6 @@ class T2starDataset(Dataset):
                 target_mask = np.mean(target_mask, axis=0)
                 original_kspace = fft2c(hf["Original_Data"][:, dataslice])
 
-        if self.scale_target:
-            # scale the target mask:
-            target_mask = (target_mask - 0.5) * 2
-            target_mask[target_mask < 0] = 0
-
-        if self.MultiClass == 5:
-            target_mask = (target_mask * 5).astype(int)
-            target_mask[target_mask == 5] = 4
-        if self.MultiClass == 3:
-            tmp_target_mask = target_mask.copy()
-            target_mask[tmp_target_mask <= 0.5] = 0
-            target_mask[tmp_target_mask > 0.5] = 1
-            target_mask[tmp_target_mask > 0.75] = 2
-            target_mask = target_mask.astype(int)
-
-
         # normalized kspace with normalization constant from image:
         if self.normalize == "abs_image":
             abs_simulated_image = np.amax(abs(simulated_image)) + 1e-9
@@ -142,14 +113,10 @@ class T2starDataset(Dataset):
             if self.subst_with_orig:
                 cond = np.rollaxis(np.tile(target_mask, (112, 12, 1)), 0, 3)
                 kspace[cond >= self.subst_with_orig] = original_kspace[cond >= self.subst_with_orig]
-                if not self.soft_mask and not self.MultiClass:
+                if not self.soft_mask:
                     target_mask[target_mask < self.subst_with_orig] = 0
                     target_mask[target_mask >= self.subst_with_orig] = 1
-                if self.MultiClass == 5:
-                    target_mask[target_mask >= self.subst_with_orig*5] = 4
-                if self.MultiClass == 3:
-                    target_mask[tmp_target_mask >= self.subst_with_orig] = 2
-                if self.soft_mask:
+                else:
                     target_mask[target_mask >= self.subst_with_orig] = 1
 
         if self.crop_readout:
@@ -157,21 +124,12 @@ class T2starDataset(Dataset):
             ind = int((kspace.shape[-1]-self.crop_readout)/2)
             kspace = kspace[..., ind:-ind]
 
-        if self.complex_valued:
-            # additional channel dimension:
-            kspace = kspace[np.newaxis, ...]
-
-            return torch.as_tensor(kspace, dtype=torch.complex64), \
-                   torch.as_tensor(target_mask), str(filename), dataslice
-
-        elif self.magn_phase:
+        if self.magn_phase:
             # only implemented for norm_lines at the moment
             if self.normalize == "abs_image":
                 print("ERROR in dataloader: magn_phase is only implemented for norm_lines at the moment!")
             # magnitude and phase as separate channels
             if self.normalize == "line_wise":
-                if self.log_transform:
-                    kspace = np.log(kspace + 1e-8)
                 norm = np.sqrt(np.sum(abs(kspace)**2, axis=(0, 2)))+1e-9
                 kspace_magn_phase = np.zeros((2, *kspace.shape))
                 kspace_magn_phase[0] = abs(kspace)/norm[None, :, None]   # all echoes normalised together
@@ -190,8 +148,6 @@ class T2starDataset(Dataset):
                 kspace_realv[1] = np.imag(kspace)
             if self.normalize == "line_wise":
                 # rescale each line with norm of the line (all echoes normalised together)
-                if self.log_transform:
-                    kspace = np.log(abs(kspace) + 1e-8)
                 norm = np.sqrt(np.sum(abs(kspace) ** 2, axis=(0, 2))) + 1e-9
                 kspace = kspace / norm[None, :, None]
                 kspace_realv[0] = np.real(kspace)
@@ -215,9 +171,6 @@ class T2starLoader(pl.LightningDataModule):
         self.normalize = args['normalize'] if 'normalize' in akeys else "abs_image"
         self.soft_mask = args['soft_mask'] if 'soft_mask' in akeys else False
         self.subst_with_orig = args['subst_with_orig'] if 'subst_with_orig' in akeys else None
-        self.scale_target = args['scale_target'] if 'scale_target' in akeys else None
-        self.MultiClass = args['MultiClass'] if 'MultiClass' in akeys else None
-        self.log_transform = args['log_transform'] if 'log_transform' in akeys else False
         self.crop_readout = args['crop_readout'] if 'crop_readout' in akeys else False
         self.overfit_one_sample = args['overfit_one_sample'] if 'overfit_one_sample' in akeys else False
         self.magn_phase = args['magn_phase'] if 'magn_phase' in akeys else False
@@ -247,11 +200,8 @@ class T2starLoader(pl.LightningDataModule):
                                  normalize=self.normalize,
                                  soft_mask=self.soft_mask,
                                  subst_with_orig=self.subst_with_orig,
-                                 scale_target=self.scale_target,
-                                 MultiClass=self.MultiClass,
                                  magn_phase=self.magn_phase,
                                  input_2d=self.input_2d,
-                                 log_transform=self.log_transform,
                                  crop_readout=self.crop_readout,
                                  overfit_one_sample=self.overfit_one_sample)
         logging.info(f"Size of the train dataset: {trainset.__len__()}.")
@@ -276,11 +226,8 @@ class T2starLoader(pl.LightningDataModule):
                                normalize=self.normalize,
                                soft_mask=self.soft_mask,
                                subst_with_orig=self.subst_with_orig,
-                               scale_target=self.scale_target,
-                               MultiClass=self.MultiClass,
                                magn_phase=self.magn_phase,
                                input_2d=self.input_2d,
-                               log_transform=self.log_transform,
                                crop_readout=self.crop_readout,
                                overfit_one_sample=self.overfit_one_sample)
         logging.info(f"Size of the validation dataset: {valset.__len__()}.")
@@ -307,11 +254,8 @@ class T2starLoader(pl.LightningDataModule):
                                 normalize=self.normalize,
                                 soft_mask=self.soft_mask,
                                 subst_with_orig=self.subst_with_orig,
-                                scale_target=self.scale_target,
-                                MultiClass=self.MultiClass,
                                 magn_phase=self.magn_phase,
                                 input_2d=self.input_2d,
-                                log_transform=self.log_transform,
                                 crop_readout=self.crop_readout,
                                 overfit_one_sample=self.overfit_one_sample)
         logging.info(f"Size of the test dataset: {testset.__len__()}.")
