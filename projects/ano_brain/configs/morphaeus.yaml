@@ -1,0 +1,300 @@
+name: MorphAEus
+target_size: &target_size !!python/tuple [128, 128]
+dbatch_size: &dbatch_size 1
+checkpoint_path: &checkpoint_path ./weights/fast_mri/sota/
+#
+# Experiment
+#
+experiment:
+  name: 23_RA_MIDL
+  task: train
+  weights: #'./weights/fast_mri/sota/2022_11_28_14_46_59_430187/best_model.pt'
+#
+device: gpu
+configurator:
+  module_name: core.Configurator
+  class_name: DLConfigurator
+  params:
+#
+# Model
+#
+model:
+  module_name: model_zoo.morphaeus
+  class_name: MorphAEus
+  params:
+    inshape: *target_size
+    bidir: True
+    in_channels: 1
+    nr_ref_channels: 3
+    channels:
+      - 16
+      - 32
+      - 64
+      - 128
+      - 256
+      - 256
+      - 256
+#      - 256
+    strides:
+      - 2
+      - 2
+      - 2
+      - 2
+      - 2
+      - 2
+      - 2
+#      - 2
+    out_ch: 1
+    kernel_size: 3
+    norm: batch
+    act: swish
+    deconv_mode: stride
+#
+# Trainer
+#
+trainer:
+  module_name: projects.23_ra_ipmi.MorphTrainer
+  class_name: PTrainer
+  params:
+    input_size: *target_size
+    checkpoint_path: *checkpoint_path
+    nr_epochs: 5000
+    max_iter: 1500
+    loss:
+      module_name: optim.losses.ln_losses
+      class_name: L2
+      params:
+    patience: 200
+    alfa: 0.2
+    # Optimizer
+    # Optimizer
+    optimizer_params:
+#      lr: 1.0e-4 # Orig
+      lr: 5.0e-4
+  # Data Loader
+  data_loader:
+# IXI-T1
+    module_name: core.DataLoader
+    class_name: DefaultDataLoader
+    params:
+      args:
+        dataset_module:
+          module_name: data.loaders.fastmri_loader
+          class_name: FastLoader
+        data_dir:
+          train:
+#          - './data/CAPS_IXI/splits/ixi-t1_train_2D.csv'
+#          - './data/ATLAS_2/splits/atlas_train_dummy.csv'
+          - './data/fastMRI/splits/ixi_normal_train.csv'
+          val:
+#          - './data/ATLAS_2/splits/atlas_test.csv'
+#          - './data/CAPS_IXI/splits/ixi-t1_val_2D.csv'
+          - './data/fastMRI/splits/normal_val.csv'
+          test:
+#          - './data/CAPS_IXI/splits/ixi-t1_val_2D.csv'
+#            - './data/ATLAS_2/splits/atlas_test_dummy.csv'
+          - './data/fastMRI/splits/normal_test.csv'
+        target_size: *target_size
+#        batch_size: 128 # Orig
+        batch_size: 8
+# Downstream tasks
+downstream_tasks:
+  detection:
+    module_name: projects.23_ra_ipmi.DownstreamEvaluator
+    class_name: PDownstreamEvaluator
+    checkpoint_path: *checkpoint_path
+    data_loader:
+      module_name: core.DataLoader
+      class_name: DefaultDataLoader
+      params:
+        args:
+          target_size: *target_size
+          batch_size: *dbatch_size
+          dataset_module:
+            module_name: data.loaders.fastmri_loader
+            class_name: FastLoader
+      datasets:
+        Normal_brain:
+          data_dir:
+            test:
+              - './data/fastMRI/splits/normal_test.csv'
+        global:
+          data_dir:
+            test:
+              - './data/fastMRI/splits/global.csv'
+        local:
+          data_dir:
+            test:
+              - './data/fastMRI/splits/local.csv'
+  localization:
+    module_name: projects.23_ra_ipmi.DownstreamEvaluator
+    class_name: PDownstreamEvaluator
+    checkpoint_path: *checkpoint_path
+    data_loader:
+      module_name: core.DataLoader
+      class_name: DefaultDataLoader
+      params:
+        args:
+          target_size: *target_size
+          batch_size: *dbatch_size
+          dataset_module:
+            module_name: data.loaders.fastmri_loader
+            class_name: FastLoader
+      datasets:
+        Normal_brain:
+          data_dir:
+            test:
+              - './data/fastMRI/splits/normal_test.csv'
+          label_dir:
+            test:
+              - './data/fastMRI/splits/normal_test_ann.csv'
+        absent_septum:
+          data_dir:
+            test:
+              - './data/fastMRI/splits/absent_septum.csv'
+          label_dir:
+            test:
+              - './data/fastMRI/splits/absent_septum_ann.csv'
+          mask_dir:
+            test:
+              - './data/fastMRI/splits/absent_septum_neg.csv'
+        artefacts:
+          data_dir:
+            test:
+              - './data/fastMRI/splits/artefacts.csv'
+          label_dir:
+            test:
+              - './data/fastMRI/splits/artefacts_ann.csv'
+          mask_dir:
+            test:
+              - './data/fastMRI/splits/artefacts_neg.csv'
+        craniatomy:
+          data_dir:
+            test:
+              - './data/fastMRI/splits/craniatomy.csv'
+          label_dir:
+            test:
+              - './data/fastMRI/splits/craniatomy_ann.csv'
+          mask_dir:
+            test:
+              - './data/fastMRI/splits/craniatomy_neg.csv'
+        dural:
+          data_dir:
+            test:
+              - './data/fastMRI/splits/dural.csv'
+          label_dir:
+            test:
+              - './data/fastMRI/splits/dural_ann.csv'
+          mask_dir:
+            test:
+              - './data/fastMRI/splits/dural_neg.csv'
+        ea_mass:
+          data_dir:
+            test:
+              - './data/fastMRI/splits/ea_mass.csv'
+          label_dir:
+            test:
+              - './data/fastMRI/splits/ea_mass_ann.csv'
+          mask_dir:
+            test:
+              - './data/fastMRI/splits/ea_mass_neg.csv'
+        edema:
+          data_dir:
+            test:
+              - './data/fastMRI/splits/edema.csv'
+          label_dir:
+            test:
+              - './data/fastMRI/splits/edema_ann.csv'
+          mask_dir:
+            test:
+              - './data/fastMRI/splits/edema_neg.csv'
+        encephalomalacia:
+          data_dir:
+            test:
+              - './data/fastMRI/splits/encephalomalacia.csv'
+          label_dir:
+            test:
+              - './data/fastMRI/splits/encephalomalacia_ann.csv'
+          mask_dir:
+            test:
+              - './data/fastMRI/splits/encephalomalacia_neg.csv'
+        enlarged_ventricles:
+          data_dir:
+            test:
+              - './data/fastMRI/splits/enlarged_ventricles.csv'
+          label_dir:
+            test:
+              - './data/fastMRI/splits/enlarged_ventricles_ann.csv'
+          mask_dir:
+            test:
+              - './data/fastMRI/splits/enlarged_ventricles_neg.csv'
+        intraventricular:
+          data_dir:
+            test:
+              - './data/fastMRI/splits/intraventricular.csv'
+          label_dir:
+            test:
+              - './data/fastMRI/splits/intraventricular_ann.csv'
+          mask_dir:
+            test:
+              - './data/fastMRI/splits/intraventricular_neg.csv'
+        lesions:
+          data_dir:
+            test:
+              - './data/fastMRI/splits/lesions.csv'
+          label_dir:
+            test:
+              - './data/fastMRI/splits/lesions_ann.csv'
+          mask_dir:
+            test:
+              - './data/fastMRI/splits/lesions_neg.csv'
+        mass:
+          data_dir:
+            test:
+              - './data/fastMRI/splits/mass.csv'
+          label_dir:
+            test:
+              - './data/fastMRI/splits/mass_ann.csv'
+          mask_dir:
+            test:
+              - './data/fastMRI/splits/mass_neg.csv'
+        posttreatment_change:
+          data_dir:
+            test:
+              - './data/fastMRI/splits/posttreatment.csv'
+          label_dir:
+            test:
+              - './data/fastMRI/splits/posttreatment_ann.csv'
+          mask_dir:
+            test:
+              - './data/fastMRI/splits/posttreatment_neg.csv'
+        resection:
+          data_dir:
+            test:
+              - './data/fastMRI/splits/resection.csv'
+          label_dir:
+            test:
+              - './data/fastMRI/splits/resection_ann.csv'
+          mask_dir:
+            test:
+              - './data/fastMRI/splits/resection_neg.csv'
+        sinus:
+          data_dir:
+            test:
+              - './data/fastMRI/splits/sinus.csv'
+          label_dir:
+            test:
+              - './data/fastMRI/splits/sinus_ann.csv'
+          mask_dir:
+            test:
+              - './data/fastMRI/splits/sinus_neg.csv'
+        wml:
+          data_dir:
+            test:
+              - './data/fastMRI/splits/wml.csv'
+          label_dir:
+            test:
+              - './data/fastMRI/splits/wml_ann.csv'
+          mask_dir:
+            test:
+              - './data/fastMRI/splits/wml_neg.csv'
