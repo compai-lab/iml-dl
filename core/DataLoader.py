@@ -17,7 +17,7 @@ import glob
 
 class DefaultDataset(Dataset):
 
-    def __init__(self, data_dir, file_type='', label_dir=None, target_size=(64, 64)):
+    def __init__(self, data_dir, file_type='', label_dir=None, mask_dir=None, target_size=(64, 64), test=False):
         """
         @param data_dir: str
             path to directory or csv file containing data
@@ -43,20 +43,33 @@ class DefaultDataset(Dataset):
 
         logging.info('DefaultDataset::init(): Loading {} files from: {}'.format(self.nr_items, data_dir))
 
-        self.im_t = self.get_image_transform()
+        self.im_t = self.get_image_transform_test() if test else self.get_image_transform()
         if label_dir is not None:
             if 'csv' in label_dir[0]:
                 self.label_files = get_data_from_csv(label_dir)
             else:
                 self.label_files = [glob.glob(label_dir_i + file_type) for label_dir_i in label_dir]
-            self.seg_t = self.get_label_transform()
+            self.seg_t = self.get_label_transform_test() if test else self.get_label_transform()
 
     def get_image_transform(self):
+        """
+        Add specific annotations for training, e.g., augmentation
+        """
+        default_t = transforms.Compose([ReadImage(), To01(), AddChannelIfNeeded(),
+                                        AssertChannelFirst(), transforms.Resize(self.target_size)])
+        return default_t
+
+    def get_image_transform_test(self):
         default_t = transforms.Compose([ReadImage(), To01(), AddChannelIfNeeded(),
                                         AssertChannelFirst(), transforms.Resize(self.target_size)])
         return default_t
 
     def get_label_transform(self):
+        default_t = transforms.Compose([ReadImage(), To01(), AddChannelIfNeeded(),
+                                        AssertChannelFirst(), transforms.Resize(self.target_size)])
+        return default_t
+
+    def get_label_transform_test(self):
         default_t = transforms.Compose([ReadImage(), To01(), AddChannelIfNeeded(),
                                         AssertChannelFirst(), transforms.Resize(self.target_size)])
         return default_t
@@ -83,6 +96,7 @@ class DefaultDataLoader(pl.LightningDataModule):
         self.data_dir = args['data_dir'] if 'data_dir' in akeys else None
         self.file_type = args['file_type'] if 'file_type' in akeys else ''
         self.label_dir = args['label_dir'] if 'label_dir' in akeys else {'train': None, 'val': None, 'test': None}
+        self.mask_dir = args['mask_dir'] if 'mask_dir' in akeys else {'train': None, 'val': None, 'test': None}
         self.target_size = args['target_size'] if 'target_size' in akeys else (64, 64)
         self.batch_size = args['batch_size'] if 'batch_size' in akeys else 8
         self.num_workers = args['num_workers'] if 'num_workers' in akeys else 2
@@ -91,14 +105,17 @@ class DefaultDataLoader(pl.LightningDataModule):
             assert 'module_name' in dataset_module.keys() and 'class_name' in dataset_module.keys(),\
                 'DefaultDataset::init(): Please use the keywords [module_name|class_name] in the dataset_module dictionary'
             self.ds_module = import_module(dataset_module['module_name'], dataset_module['class_name'])
+            print(dataset_module['class_name'])
         else:
             self.ds_module = import_module('core.DataLoader', 'DefaultDataset')
+            print('Default DATASET!')
+
 
     def train_dataloader(self):
         if 'train' not in self.data_dir.keys():
             return self.test_dataloader()
         return DataLoader(self.ds_module(self.data_dir['train'], self.file_type, self.label_dir['train'],
-                                         self.target_size),
+                                         self.mask_dir['train'], self.target_size, test=False),
                           batch_size=self.batch_size,
                           num_workers=self.num_workers,
                           shuffle=True,
@@ -110,7 +127,7 @@ class DefaultDataLoader(pl.LightningDataModule):
         if 'val' not in self.data_dir.keys():
             return self.test_dataloader()
         return DataLoader(self.ds_module(self.data_dir['val'], self.file_type, self.label_dir['val'],
-                                         self.target_size),
+                                         self.mask_dir['val'], self.target_size, test=True),
                           batch_size=self.batch_size,
                           num_workers=self.num_workers,
                           shuffle=False,
@@ -122,7 +139,7 @@ class DefaultDataLoader(pl.LightningDataModule):
         assert 'test' in self.data_dir.keys(), \
             'DefaultDatasets::init():  Please use the keywords [test] in the data_dir dictionary'
         return DataLoader(self.ds_module(self.data_dir['test'], self.file_type, self.label_dir['test'],
-                                         self.target_size),
+                                         self.mask_dir['test'], self.target_size, test=True),
                           batch_size=self.batch_size,
                           num_workers=self.num_workers,
                           shuffle=False,
