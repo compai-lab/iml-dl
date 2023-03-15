@@ -132,10 +132,34 @@ class ConvAutoEncoder(nn.Module):
                               strides=strides, kernel_size=kernel_size, norm=norm, act=act, deconv_mode=deconv_mode,
                               act_final=act_final, bottleneck=bottleneck, skip=skip, add_final=True, name_prefix='conv_')
 
-    def forward(self,  x: torch):
-        z = self.encoder(x)
-        x_ = self.decoder(z)
-        return x_, {'z': z}
+    # def forward(self,  x: torch):
+    #     z = self.encoder(x)
+    #     x_ = self.decoder(z)
+    #     return x_, {'z': z}
+
+    def forward(self, x:torch):
+        encode_history, decode_history = [], []
+        for i_e, enc_layer in enumerate(self.encoder):
+            if i_e == 0:
+                enc_x = enc_layer(x)
+            else:
+                enc_x = enc_layer(enc_x)
+            if isinstance(enc_layer, CustomSwish):
+            # if isinstance(enc_layer, nn.Conv2d):
+                # if enc_x.shape[-1] != 1:
+                encode_history.insert(0, enc_x)
+        z = enc_x
+        for i_d, dec_layer in enumerate(self.decoder):
+            if i_d == 0:
+                dec_x = dec_layer(enc_x)
+            else:
+                dec_x = dec_layer(dec_x)
+            if isinstance(dec_layer, CustomSwish):
+            # if isinstance(dec_layer, nn.Conv2d) or isinstance(dec_layer, nn.ConvTranspose2d):
+                # if len(decode_history) < len(encode_history) and \
+                #         encode_history[len(decode_history)].shape[-1] == dec_x.shape[-1]:
+                decode_history.append(dec_x)
+        return dec_x, {'z': z, 'encode_embeddings': encode_history, 'decode_embeddings': decode_history}
 
 
 class DenseConvAutoEncoderBaur(nn.Module):
