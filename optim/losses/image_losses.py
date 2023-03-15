@@ -4,6 +4,7 @@ import numpy as np
 import math
 from model_zoo import VGGEncoder
 from torch.nn.modules.loss import _Loss
+from scipy.ndimage.filters import gaussian_filter
 
 
 class NCC:
@@ -23,6 +24,7 @@ class NCC:
         Ii = y_true
         Ji = y_pred
 
+        num_channels = y_true.shape[1]
         # get dimension of volume
         # assumes Ii, Ji are sized [batch_size, *vol_shape, nb_feats]
         ndims = len(list(Ii.size())) - 2
@@ -32,7 +34,8 @@ class NCC:
         win = [9] * ndims if self.win is None else self.win
 
         # compute filters
-        sum_filt = torch.ones([1, 1, *win]).to("cuda")
+        # print(f'Num channels: {num_channels}')
+        sum_filt = torch.ones([1, num_channels, *win]).to("cuda")
 
         pad_no = math.floor(win[0] / 2)
 
@@ -68,10 +71,12 @@ class NCC:
         I_var = I2_sum - 2 * u_I * I_sum + u_I * u_I * win_size
         J_var = J2_sum - 2 * u_J * J_sum + u_J * u_J * win_size
 
-        cc = cross * cross / (I_var * J_var + 1e-5)
+        var_prod = torch.clamp(I_var * J_var, min=0)  # For stability, avoid infinity
+        cc = cross * cross / (var_prod + 1e-5)
 
-        return -torch.mean(cc)
+        # return 1-torch.mean(cc)
 
+        return 1-cc
 
 class DisplacementRegularizer2D(torch.nn.Module):
     """
@@ -149,10 +154,100 @@ class PerceptualLoss(_Loss):
             target (N,*),
                 same shape as input.
         """
-        input_features = self.loss_network(input.repeat(1, 3, 1, 1))
-        output_features = self.loss_network(target.repeat(1, 3, 1, 1))
+        input_features = self.loss_network(input.repeat(1, 3, 1, 1)) if input.shape[1] == 1 else input
+        output_features = self.loss_network(target.repeat(1, 3, 1, 1)) if target.shape[1] == 1 else target
 
         loss_pl = 0
         for output_feature, input_feature in zip(output_features, input_features):
             loss_pl += F.mse_loss(output_feature, input_feature)
         return loss_pl
+
+
+class CosineSimLoss():
+    """
+    """
+
+    def __init__(
+        self,
+        reduction: str = 'mean',
+        device: str = 'gpu') -> None:
+        """
+        Args
+            reduction: str, {'none', 'mean', 'sum}
+                Specifies the reduction to apply to the output. Defaults to ``"mean"``.
+                - 'none': no reduction will be applied.
+                - 'mean': the sum of the output will be divided by the number of elements in the output.
+                - 'sum': the output will be summed.
+        """
+        super().__init__()
+        self.device = device
+        self.reduction = reduction
+        self.loss_network = VGGEncoder().eval().to(self.device)
+
+    def norm(self, input):
+        input = input/np.max(input)
+        return input
+
+    def __call__(self, input: torch.Tensor, target: torch.Tensor, out_size=128, amap_mode='mul'):
+        """
+        Args:
+            input: (N,*),
+                where N is the batch size and * is any number of additional dimensions.
+            target (N,*),
+                same shape as input.
+        """
+        input_features = self.loss_network(input.repeat(1, 3, 1, 1)) if input.shape[1] == 1 else input
+        output_features = self.loss_network(target.repeat(1, 3, 1, 1)) if target.shape[1] == 1 else target
+        anomaly_maps = []
+        for b in range(input.shape[0]):
+            if amap_mode == 'mul':
+                anomaly_map = np.ones([out_size, out_size])
+            else:
+                anomaly_map = np.zeros([out_size, out_size])
+            a_map_list = []
+            for i in range(len(output_features)):
+                fs = input_features[i]
+                ft = output_features[i]
+                # fs_norm = F.normalize(fs, p=2)
+                # ft_norm = F.normalize(ft, p=2)
+                a_map = 1 - F.cosine_similarity(fs, ft)
+                a_map = torch.unsqueeze(a_map, dim=1)
+                a_map = F.interpolate(a_map, size=out_size, mode='bilinear', align_corners=True)
+                a_map = a_map[0, 0, :, :].to('cpu').detach().numpy()
+                a_map_list.append(a_map)
+                if amap_mode == 'mul' or amap_mode == 'mulsum':
+                    anomaly_map *= a_map
+                else:
+                    anomaly_map += a_map
+            anomaly_map = anomaly_map * 10 + gaussian_filter((np.max(np.asarray(a_map_list), axis=0)/10), 2)
+            # if amap_mode == 'mulsum':
+            #     anomaly_map = (self.norm(anomaly_map) + self.norm(np.max(np.asarray(a_map_list), axis=0)) / 2) / 2
+            # else:
+            #     anomaly_map = self.norm(anomaly_map)
+
+            anomaly_maps.append(np.expand_dims(anomaly_map,  0))
+        anomaly_maps = np.asarray(anomaly_maps)
+        return anomaly_maps
+
+
+class EmbeddingLoss(torch.nn.Module):
+    def __init__(self):
+        super(EmbeddingLoss, self).__init__()
+        self.criterion = torch.nn.MSELoss()
+        self.similarity_loss = torch.nn.CosineSimilarity()
+
+    def forward(self, teacher_embeddings, student_embeddings):
+        # print(f'LEN {len(output_real)}')
+        layer_id = 0
+        # teacher_embeddings = teacher_embeddings[:-1]
+        # student_embeddings = student_embeddings[3:-1]
+        # print(f' Teacher: {len(teacher_embeddings)}, Student: {len(student_embeddings)}')
+        for teacher_feature, student_feature in zip(teacher_embeddings, student_embeddings):
+            if layer_id == 0:
+                total_loss = 0.5 * self.criterion(teacher_feature, student_feature)
+            else:
+                total_loss += 0.5 * self.criterion(teacher_feature, student_feature)
+            total_loss += torch.mean(1 - self.similarity_loss(teacher_feature.view(teacher_feature.shape[0], -1),
+                                                         student_feature.view(student_feature.shape[0], -1)))
+            layer_id += 1
+        return total_loss
