@@ -3,16 +3,6 @@ MIT License
 
 Copyright (c) 2021 OpenAI
 
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
 This code started out as a PyTorch port of Ho et al's diffusion models:
 https://github.com/hojonathanho/diffusion/blob/1e0dceb3b3495bbe19116a5e1b3596cd0706c543/diffusion_tf/diffusion_utils_2.py
 
@@ -26,8 +16,8 @@ import numpy as np
 import torch
 
 #TODO: new place for utils
-from .nn import mean_flat
-from .losses import normal_kl, discretized_gaussian_log_likelihood
+from ..layers import mean_flat
+from ...optim.losses.log_likelihood_losses import normal_kl, discretized_gaussian_log_likelihood
 
 
 def get_named_beta_schedule(schedule_name, num_diffusion_timesteps):
