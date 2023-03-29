@@ -42,8 +42,15 @@ class DefaultDataset(Dataset):
         self.nr_items = len(self.files)
 
         logging.info('DefaultDataset::init(): Loading {} files from: {}'.format(self.nr_items, data_dir))
-
-        self.im_t = self.get_image_transform_test() if test else self.get_image_transform()
+        self.im_t = []
+        for i in range(self.nr_items):
+            a = Image.open(self.files[i]).resize((128,128), Image.ANTIALIAS)
+            print(a.size, self.files[i])
+            test = (np.asarray(a).reshape(1,1, 128,128))
+            test = (test-np.min(test)) / (np.max(test)- np.min(test))
+            print(test.shape)
+            self.im_t.append(torch.Tensor(test))
+     #   self.im_ = torch.Tensor(np.array(self.im_t))
         if label_dir is not None:
             if 'csv' in label_dir[0]:
                 self.label_files = get_data_from_csv(label_dir)
