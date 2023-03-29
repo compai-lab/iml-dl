@@ -13,7 +13,7 @@ from dl_utils.data_utils import *
 from dl_utils.config_utils import *
 import logging
 import glob
-
+from PIL import Image
 
 class DefaultDataset(Dataset):
 
