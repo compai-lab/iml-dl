@@ -1,18 +1,18 @@
 name: VAE
-target_size: &target_size !!python/tuple [128, 128]
+target_size: !!python/tuple &target_size [128, 128]
 dbatch_size: &dbatch_size 1
 checkpoint_path: &checkpoint_path ./weights/phanes_miccai/sota/
 #
 # Experiment
 #
 experiment:
-  name: 23_MICCAI_PHANES [Synthetic]
+  name: vae
   task: test
-  weights:  './weights/fast_mri/sota/2022_12_05_14_24_26_588331/best_model.pt'
+  weights: "./weights/phanes_miccai/sota/2023_03_24_08_37_57_523843/best_model.pt"
 #  weights:  './weights/phanes_miccai/sota/2023_01_31_16_04_55_377770/best_model.pt'
 
 #
-device: gpu
+device: cpu
 configurator:
   module_name: core.Configurator
   class_name: DLConfigurator
@@ -20,7 +20,6 @@ configurator:
 #
 # Model
 #
-
 
 #
 # Model
@@ -41,7 +40,7 @@ model:
 # Trainer
 #
 trainer:
-  module_name: projects.23_phanes_miccai.Trainer
+  module_name: projects.ano_brain_us.Trainer
   class_name: PTrainer
   params:
     input_size: *target_size
@@ -55,60 +54,36 @@ trainer:
       params:
         rec_log_std: 0
     # Optimizer
-    lr_scheduler: 'plateau'
+    lr_scheduler: "plateau"
     optimizer_params:
-#      lr: 1.0e-4 # Orig
-      lr: 5.0e-4
+      #      lr: 1.0e-4 # Orig
+      lr: 5.0e-5
   # Data Loader
   data_loader:
-# IXI-T1
+    # IXI-T1
     module_name: core.DataLoader
     class_name: DefaultDataLoader
     params:
       args:
         dataset_module:
-          module_name: data.loaders.ixi_loader
-          class_name: IXILoader
+          module_name: core.DataLoader
+          class_name: DefaultDataset
         data_dir:
           train:
-          - './data/CAPS_IXI/splits/ixi-t1_train_png.csv'
+            - "E:\\Master Thesis\\iml-dl\\data\\augmented_train\\*"
           val:
-          - './data/CAPS_IXI/splits/ixi-t1_val_png.csv'
+            - "./data/augmented_val/*"
           test:
-          - './data/CAPS_IXI/splits/ixi-t1_test_png.csv'
+            - "./data/augmented_test/*"
         target_size: *target_size
         batch_size: 8
 # Downstream tasks
 downstream_tasks:
-#  detection:
-#    module_name: projects.23_phanes_miccai.DownstreamEvaluator
-#    class_name: PDownstreamEvaluator
-#    checkpoint_path: *checkpoint_path
-#    global_detection: True
-#    data_loader:
-#      module_name: core.DataLoader
-#      class_name: DefaultDataLoader
-#      params:
-#        args:
-#          target_size: *target_size
-#          batch_size: *dbatch_size
-#          dataset_module:
-#            module_name: data.loaders.ixi_loader
-#            class_name: IXILoader
-#      datasets:
-#        Atlas:
-#          data_dir:
-#            test:
-#              - './data/ATLAS/splits/atlas_train_png.csv'
-#          label_dir:
-#            test:
-#              - './data/ATLAS/splits/atlas_train_mask_png.csv'
-#
-  pseudo_healthy:
-    module_name: projects.23_phanes_miccai.DownstreamEvaluator
+  detection:
+    module_name: projects.ano_brain_us.DownstreamEvaluator
     class_name: PDownstreamEvaluator
     checkpoint_path: *checkpoint_path
-    global_detection: False
+    global_detection: True
     data_loader:
       module_name: core.DataLoader
       class_name: DefaultDataLoader
@@ -117,10 +92,34 @@ downstream_tasks:
           target_size: *target_size
           batch_size: *dbatch_size
           dataset_module:
-            module_name: data.loaders.fastmri_loader
-            class_name: FastLoader
+            module_name: core.DataLoader
+            class_name: DefaultDataset
       datasets:
         Normal_brain:
           data_dir:
             test:
-              - './data/fastMRI/splits/normal_test.csv'
+              - "./data/Ventricular_segmented_clean_test/*"
+        global_pathology:
+          data_dir:
+            test:
+              - "./data/anomaly_segmented/*"
+  #pseudo_healthy:
+  # module_name: projects.23_phanes_miccai.DownstreamEvaluator
+  #class_name: PDownstreamEvaluator
+  #checkpoint_path: *checkpoint_path
+  #global_detection: False
+  #data_loader:
+  #  module_name: core.DataLoader
+  #  class_name: DefaultDataLoader
+  #  params:
+  #    args:
+  #     target_size: *target_size
+  #     batch_size: *dbatch_size
+  #    dataset_module:
+  #     module_name: data.loaders.fastmri_loader
+  #    class_name: FastLoader
+  # datasets:
+  #  Normal_brain:
+  #   data_dir:
+  #    test:
+  #     - "./data/fastMRI/splits/normal_test.csv"

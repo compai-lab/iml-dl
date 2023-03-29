@@ -9,6 +9,7 @@ import wandb
 import logging
 import matplotlib.pyplot as plt
 from core.Trainer import Trainer
+from PIL import Image
 from dl_utils.config_utils import *
 
 # S. Pidhorskyi, R. Almohsen, and G. Doretto. Generative probabilistic novelty detection with adversarial autoencoders.
@@ -70,7 +71,7 @@ class PTrainer(Trainer):
             self.model.E.train()
             self.model.ZD.train()
 
-            if (epoch + 1) % 250 == 0:
+            if (epoch + 1) % 50 == 0:
                 self.G_optimizer.param_groups[0]['lr'] /= 4
                 self.D_optimizer.param_groups[0]['lr'] /= 4
                 self.GE_optimizer.param_groups[0]['lr'] /= 4
@@ -81,6 +82,7 @@ class PTrainer(Trainer):
                 # Input
 
                 images = data[0].to(self.device)
+           
                 transformed_images = self.transform(images) if self.transform is not None else images
                 b, c, w, h = images.shape
                 count_images += b
@@ -91,18 +93,17 @@ class PTrainer(Trainer):
                 y_real_z = torch.ones(1 if self.cross_batch else transformed_images.shape[0]).to(self.device)
                 y_fake_z = torch.zeros(1 if self.cross_batch else transformed_images.shape[0]).to(self.device)
 
-                #############################################
-
+                ############################################
                 self.model.D.zero_grad()
 
-                D_result = self.model.D(transformed_images).squeeze()
+                D_result = self.model.D(transformed_images).view(1)
                 D_real_loss = self.BCE_loss(D_result, y_real_)
 
                 z = torch.randn((transformed_images.shape[0], self.latent_size)).view(-1, self.latent_size, 1, 1).to(self.device)
                 z = Variable(z)
 
                 x_fake = self.model.G(z).detach()
-                D_result = self.model.D(x_fake).squeeze()
+                D_result = self.model.D(x_fake).view(1)
 
                 D_fake_loss = self.BCE_loss(D_result, y_fake_)
 
@@ -121,7 +122,7 @@ class PTrainer(Trainer):
                 z = Variable(z)
 
                 x_fake = self.model.G(z)
-                D_result = self.model.D(x_fake).squeeze()
+                D_result = self.model.D(x_fake).view(1)
 
                 G_train_loss = self.BCE_loss(D_result, y_real_)
 
@@ -137,12 +138,12 @@ class PTrainer(Trainer):
                 z = torch.randn((transformed_images.shape[0], self.latent_size)).view(-1, self.latent_size).to(self.device)
                 z = z.requires_grad_(True)
 
-                ZD_result = self.model.ZD(z).squeeze()
+                ZD_result = self.model.ZD(z).view(1)
                 ZD_real_loss = self.BCE_loss(ZD_result, y_real_z)
 
                 z = self.model.E(transformed_images).squeeze().detach()
 
-                ZD_result = self.model.ZD(z).squeeze()
+                ZD_result = self.model.ZD(z).view(1)
                 ZD_fake_loss = self.BCE_loss(ZD_result, y_fake_z)
 
                 ZD_train_loss = (ZD_real_loss + ZD_fake_loss) * 2.0
@@ -160,10 +161,9 @@ class PTrainer(Trainer):
                 z = self.model.E(transformed_images)
                 x_d = self.model.G(z)
 
-                ZD_result = self.model.ZD(z.squeeze()).squeeze()
-
+                ZD_result = self.model.ZD(z.squeeze()).view(1)
                 E_train_loss = self.BCE_loss(ZD_result, y_real_z) * 1.0
-
+                print(x_d.shape, images.detach().shape)
                 Recon_loss = F.binary_cross_entropy(x_d, images.detach()) * 2.0 # 10.0
 
                 (Recon_loss + E_train_loss).backward()
@@ -208,16 +208,20 @@ class PTrainer(Trainer):
             img = transformed_images[0].cpu().detach().numpy()
             # print(np.min(img), np.max(img))
             rec = x_d[0].cpu().detach().numpy()
-            # print(f'rec: {np.min(rec)}, {np.max(rec)}')
+            print(np.min(img), np.max(img))
+           # print(f'rec: {np.min(rec)}, {np.max(rec)}')
+            rec = (rec-np.min(rec)) / (np.max(rec)- np.min(rec))
+           # print(f'rec: {np.min(rec)}, {np.max(rec)}')
             elements = [img, rec, np.abs(rec - img)]
             v_maxs = [1, 1, 0.5]
             diffp, axarr = plt.subplots(1, len(elements), gridspec_kw={'wspace': 0, 'hspace': 0})
             diffp.set_size_inches(len(elements) * 4, 4)
             for i in range(len(axarr)):
                 axarr[i].axis('off')
+                c_map = 'gray' if v_maxs[i] == 1 else 'plasma' 
                 v_max = v_maxs[i]
-                c_map = 'gray' if v_max == 1 else 'inferno'
-                axarr[i].imshow(elements[i].transpose(1, 2, 0), vmin=0, vmax=v_max, cmap=c_map)
+                axarr[i].imshow(np.squeeze(elements[i]),vmax = v_max, vmin = 0, cmap=c_map)
+
 
             wandb.log({'Train/Example_': [
                 wandb.Image(diffp, caption="Iteration_" + str(epoch))]})
@@ -268,7 +272,8 @@ class PTrainer(Trainer):
 
         rec = x_.detach().cpu()[0].numpy()
         img = x.detach().cpu()[0].numpy()
-
+        
+        rec = (rec-np.min(rec)) / (np.max(rec)- np.min(rec))
         # print(f'rec: {np.min(rec)}, {np.max(rec)}')
         elements = [img, rec, np.abs(rec - img)]
         v_maxs = [1, 1, 0.5]
@@ -276,9 +281,10 @@ class PTrainer(Trainer):
         diffp.set_size_inches(len(elements) * 4, 4)
         for i in range(len(axarr)):
             axarr[i].axis('off')
+            c_map = 'gray' if v_maxs[i] == 1 else 'plasma' 
             v_max = v_maxs[i]
-            c_map = 'gray' if v_max == 1 else 'inferno'
-            axarr[i].imshow(elements[i].transpose(1, 2, 0), vmin=0, vmax=v_max, cmap=c_map)
+            axarr[i].imshow(np.squeeze(elements[i]),vmax = v_max, vmin = 0, cmap=c_map)
+
 
         wandb.log({task + '/Example_': [
                 wandb.Image(diffp, caption="Iteration_" + str(epoch))]})

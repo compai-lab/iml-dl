@@ -84,6 +84,7 @@ class PTrainer(Trainer):
             img = transformed_images[0].cpu().detach().numpy()
             # print(np.min(img), np.max(img))
             rec = reconstructed_images[0].cpu().detach().numpy()
+            rec = (rec - np.min(rec))/(np.max(rec)-np.min(rec))
             # print(f'rec: {np.min(rec)}, {np.max(rec)}')
             elements = [img, rec, np.abs(rec - img)]
             v_maxs = [1, 1, 0.5]
@@ -92,7 +93,7 @@ class PTrainer(Trainer):
             for i in range(len(axarr)):
                 axarr[i].axis('off')
                 v_max = v_maxs[i]
-                c_map = 'gray' if v_max == 1 else 'inferno'
+                c_map = 'gray' if v_max == 1 else 'plasma'
                 axarr[i].imshow(elements[i].transpose(1, 2, 0), vmin=0, vmax=v_max, cmap=c_map)
 
             wandb.log({'Train/Example_': [
@@ -142,7 +143,7 @@ class PTrainer(Trainer):
 
         img = x.detach().cpu()[0].numpy()
         rec = x_.detach().cpu()[0].numpy()
-
+        rec = (rec-np.min(rec))/(np.max(rec)-np.min(rec))
         elements = [img, rec, np.abs(rec - img)]
         v_maxs = [1, 1, 0.5]
         diffp, axarr = plt.subplots(1, len(elements), gridspec_kw={'wspace': 0, 'hspace': 0})
@@ -150,7 +151,7 @@ class PTrainer(Trainer):
         for i in range(len(axarr)):
             axarr[i].axis('off')
             v_max = v_maxs[i]
-            c_map = 'gray' if v_max == 1 else 'inferno'
+            c_map = 'gray' if v_max == 1 else 'plasma'
             axarr[i].imshow(elements[i].transpose(1, 2, 0), vmin=0, vmax=v_max, cmap=c_map)
 
         wandb.log({task + '/Example_': [

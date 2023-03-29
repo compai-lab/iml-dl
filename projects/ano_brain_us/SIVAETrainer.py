@@ -8,7 +8,7 @@ from dl_utils.config_utils import *
 import logging
 from model_zoo.soft_intro_vae_daniel import *
 import matplotlib.pyplot as plt
-
+from PIL import Image
 class PTrainer(Trainer):
     """
     Train Soft-Intro VAE for image datasets
@@ -59,10 +59,11 @@ class PTrainer(Trainer):
 
             diff_kls, batch_kls_real, batch_kls_fake, batch_kls_rec, batch_rec_errs, batch_exp_elbo_f,\
             batch_exp_elbo_r, count_images = 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0
-
+            i = 0
             for data in self.train_ds:
                 # Input
                 images = data[0].to(self.device)
+                print(images.shape)
                 transformed_images = self.transform(images) if self.transform is not None else images
                 b, c, w, h = images.shape
 
@@ -82,7 +83,7 @@ class PTrainer(Trainer):
                 real_mu, real_logvar = self.model.encode(real_batch)
                 z = reparameterize(real_mu, real_logvar)
                 rec = self.model.decoder(z)
-
+               
                 loss_rec = calc_reconstruction_loss(real_batch, rec, loss_type="mse", reduction="mean")
 
                 lossE_real_kl = calc_kl(real_logvar, real_mu, reduce="mean")
@@ -188,18 +189,18 @@ class PTrainer(Trainer):
 
 
             img = transformed_images[0].cpu().detach().numpy()
-            # print(np.min(img), np.max(img))
-            rec_ = rec[0].cpu().detach().numpy()
-            # print(f'rec: {np.min(rec)}, {np.max(rec)}')
+       
+            rec_ = rec_rec[0].cpu().detach().numpy()
+            rec_ = (rec_-np.min(rec_)) / (np.max(rec_)- np.min(rec_))  
+            v_maxes = [1, 1, 0.5]
             elements = [img, rec_, np.abs(rec_ - img)]
-            v_maxs = [1, 1, 0.5]
             diffp, axarr = plt.subplots(1, len(elements), gridspec_kw={'wspace': 0, 'hspace': 0})
             diffp.set_size_inches(len(elements) * 4, 4)
             for i in range(len(axarr)):
                 axarr[i].axis('off')
-                v_max = v_maxs[i]
-                c_map = 'gray' if v_max == 1 else 'inferno'
-                axarr[i].imshow(elements[i].transpose(1, 2, 0), vmin=0, vmax=v_max, cmap=c_map)
+                c_map = 'gray' if v_maxes[i] == 1 else 'plasma' 
+                v_max = v_maxes[i]
+                axarr[i].imshow(np.squeeze(elements[i]),vmax = v_max, vmin = 0, cmap=c_map)
 
             wandb.log({'Train/Example_': [
                 wandb.Image(diffp, caption="Iteration_" + str(epoch))]})
@@ -249,8 +250,9 @@ class PTrainer(Trainer):
 
         img = x[0].cpu().detach().numpy()
         # print(np.min(img), np.max(img))
-        rec_ = x_[0].cpu().detach().numpy()
-        # print(f'rec: {np.min(rec)}, {np.max(rec)}')
+        rec_ = x_[0].cpu().detach().numpy()       
+        rec_ = (rec_-np.min(rec_)) / (np.max(rec_)- np.min(rec_))     
+        print(f'rec2: {np.min(rec_)}, {np.max(rec_)}')
         elements = [img, rec_, np.abs(rec_ - img)]
         v_maxs = [1, 1, 0.5]
         diffp, axarr = plt.subplots(1, len(elements), gridspec_kw={'wspace': 0, 'hspace': 0})
@@ -258,8 +260,8 @@ class PTrainer(Trainer):
         for i in range(len(axarr)):
             axarr[i].axis('off')
             v_max = v_maxs[i]
-            c_map = 'gray' if v_max == 1 else 'inferno'
-            axarr[i].imshow(elements[i].transpose(1, 2, 0), vmin=0, vmax=v_max, cmap=c_map)
+            c_map = 'gray' if v_maxs[i] == 1 else 'plasma'
+            axarr[i].imshow(np.squeeze(elements[i]),vmax=v_max, vmin = 0,  cmap=c_map)
 
         wandb.log({task + '/Example_': [
                 wandb.Image(diffp, caption="Iteration_" + str(epoch))]})

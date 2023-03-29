@@ -8,7 +8,7 @@ logging.getLogger("matplotlib").setLevel(logging.WARNING)
 import wandb
 import plotly.graph_objects as go
 import seaborn as sns
-import umap.umap_ as umap
+import umap as umap
 #
 from torch.nn import L1Loss
 #
@@ -29,14 +29,14 @@ from dl_utils import *
 from optim.metrics import *
 from optim.losses.image_losses import NCC
 from core.DownstreamEvaluator import DownstreamEvaluator
-from dl_utils.visualization import plot_warped_grid
+
 import subprocess
 import os
 import copy
 from model_zoo import VGGEncoder
 from optim.losses.image_losses import CosineSimLoss
 from transforms.synthetic import *
-
+from PIL import Image
 
 class PDownstreamEvaluator(DownstreamEvaluator):
     """
@@ -47,7 +47,7 @@ class PDownstreamEvaluator(DownstreamEvaluator):
         super(PDownstreamEvaluator, self).__init__(name, model, device, test_data_dict, checkpoint_path)
 
         self.criterion_rec = L1Loss().to(self.device)
-        self.auprc = AUPRC()
+       # self.auprc = AUPRC()
         self.compute_scores = True
         self.vgg_encoder = VGGEncoder().to(self.device)
         self.l_pips_sq = lpips.LPIPS(pretrained=True, net='squeeze', use_dropout=True, eval_mode=True, spatial=True, lpips=True).to(self.device)
@@ -78,14 +78,14 @@ class PDownstreamEvaluator(DownstreamEvaluator):
         # th = 0.033
         # _ = self.thresholding(global_model)
         # if self.global_:
-        #     self.global_detection(global_model)
+        self.global_detection(global_model)
         # else:
         #     self.object_localization(global_model, th)
         # self.pathology_localization(global_model)
         # self.curate_dataset(global_model)
         #
         # self.umap_plot(global_model)
-        self.pseudo_healthy(global_model)
+        #self.pseudo_healthy(global_model)
 
     def compute_residual(self, x_rec, x):
         saliency = self.get_saliency(x_rec, x)
@@ -152,7 +152,7 @@ class PDownstreamEvaluator(DownstreamEvaluator):
                     data0 = data['images']
                     data1 = [0]
                 else:
-                    data0 = data[0]
+                    data0 = data[4]
                     data1 = data[1].shape
                 masks_bool = True if len(data1) > 2 else False
                 x = data0.to(self.device)
@@ -221,7 +221,7 @@ class PDownstreamEvaluator(DownstreamEvaluator):
                 # mask_synth = np.ones(x.shape)
                 x_synth, mask_synth = synth_(copy.deepcopy(x).cpu().numpy())
                 x_synth = torch.from_numpy(x_synth).to(self.device)
-                x_rec, x_rec_dict = self.model(x_synth)
+                x_rec, x_rec_dict = self.model(x)
                 # x_rec, x_rec_dict = self.model(x_synth, torch.tensor(mask_synth.astype(np.float32)).to(self.device))
                 # ims = Image.fromarray((torch.squeeze(x_synth).cpu().detach().numpy() * 255).astype(np.uint8))
                 # ims.save(self.image_path + '/Brain_' + str(idx) + '_synth.png')
@@ -255,8 +255,9 @@ class PDownstreamEvaluator(DownstreamEvaluator):
                     masked_mse_an = np.sum(((x_rec_ - x_) * np.squeeze(np.abs(1-mask_synth))) ** 2.0) / np.sum(mask_synth)
                     test_metrics['MSE'].append(masked_mse_an)
 
-                    anomaly_map = np.abs(x_rec_ - x_synth_)
+                    anomaly_map = np.abs(x_rec_ - x_)
                     if 'embeddings' in x_rec_dict.keys():
+                        print("yes")
                         anomaly_map, saliency = self.compute_residual(x_rec_i, x_synth[i][0])
                         x_res_orig = copy.deepcopy(anomaly_map)
                         #     # saliency = self.get_saliency(x_rec.detach(), x.detach())
@@ -283,9 +284,9 @@ class PDownstreamEvaluator(DownstreamEvaluator):
 
 
                     if (idx % 1) == 0:  # and (i % 5 == 0) or int(count)==13600 or int(count)==40:
-                        elements = [x_synth_, x_rec_, x_, anomaly_map, mask_synth]
+                        elements = [x_, x_rec_, np.abs(x_-x_rec_), anomaly_map]
                         v_maxs = [1, 1, 1, np.max(anomaly_map), 0.99]
-                        titles = ['Input', 'Rec', 'GT',  str(np.round(loss_lpips,2)), 'Mask']
+                        titles = ['Input', 'Rec', 'GT',  str(np.round(loss_lpips,2))]
                         # if 'embeddings' in x_rec_dict.keys():
                         #     # elements = [x_synth_, x_rec_, x_, x_res_orig, saliency, anomaly_map, mask_synth]
                         #     # v_maxs = [1, 1, 1, 0.5, 0.5, 0.125, 1]
@@ -421,6 +422,8 @@ class PDownstreamEvaluator(DownstreamEvaluator):
                     #
                     x_ = x_i.cpu().detach().numpy()
                     x_rec_ = x_rec_i.cpu().detach().numpy()
+                    
+                    x_rec_ = (x_rec_-np.min(x_rec_)) / (np.max(x_rec_)- np.min(x_rec_))
                     # np.save(self.checkpoint_path + '/' + dataset_key + '_' + str(count) + '_rec.npy', x_rec_)
 
                     ssim_ = ssim(x_rec_, x_, data_range=1.)
@@ -450,7 +453,7 @@ class PDownstreamEvaluator(DownstreamEvaluator):
                     label = 0 if 'Normal' in dataset_key else 1
                     pred_.append(res_pred)
                     label_.append(label)
-
+                    
                     if (idx % 30) == 0:  # and (i % 5 == 0) or int(count)==13600 or int(count)==40:
                         elements = [x_, x_rec_, x_res]
                         v_maxs = [1, 1, 0.5]
@@ -478,14 +481,14 @@ class PDownstreamEvaluator(DownstreamEvaluator):
                                       str(np.round(np.max(x_res_orig), 3)), str(np.round(np.max(x_res_orig * x_coarse_res), 3)),
                                       str(np.round(np.max(saliency_i), 3)), str(np.round(np.max(saliency_i*saliency_coarse), 3)),
                                       str(np.round(np.max(x_res_i), 3)) + '/' + str(np.round(np.sum(x_res_i), 3))]
-
+                        test = Image.fromarray(elements[1])
                         diffp, axarr = plt.subplots(1, len(elements), gridspec_kw={'wspace': 0, 'hspace': 0})
                         diffp.set_size_inches(len(elements) * 4, 4)
                         for idx_arr in range(len(axarr)):
                             axarr[idx_arr].axis('off')
                             v_max = v_maxs[idx_arr]
-                            c_map = 'gray' if v_max == 1 else 'jet'
-                            axarr[idx_arr].imshow(np.squeeze(elements[idx_arr]), vmin=0, vmax=v_max, cmap=c_map)
+                            c_map = 'gray' if v_maxs[i] == 1 else 'plasma'
+                            axarr[idx_arr].imshow(np.squeeze(elements[idx_arr]),vmin = 0, vmax=v_max, cmap=c_map)
                             axarr[idx_arr].set_title(titles[idx_arr])
 
                             wandb.log({'Anomaly/Example_' + dataset_key + '_' + str(count): [
@@ -594,7 +597,7 @@ class PDownstreamEvaluator(DownstreamEvaluator):
                     data0 = data['images']
                     data1 = [0]
                 else:
-                    data0 = data[0]
+                    data0 = data[4]
                     data1 = data[1].shape
                 # print(data[1].shape)
                 masks_bool = True if len(data1) > 2 else False
