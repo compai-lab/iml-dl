@@ -12,7 +12,7 @@ experiment:
 #  weights: './weights/phanes_miccai/sota/2023_01_31_16_11_37_011460/latest_model.pt'./weights/fast_mri/sota/2022_11_26_10_31_32_965404
 
 #
-device: gpu
+device: cpu
 configurator:
   module_name: core.Configurator
   class_name: DLConfigurator
@@ -60,15 +60,15 @@ trainer:
     params:
       args:
         dataset_module:
-          module_name: core.DataLoader
-          class_name: DefaultDataset
+          module_name: data.loaders.brain_us
+          class_name: Brain_us
         data_dir:
           train:
-            - "/content/iml-dl/data/augmented_train/*"
+            - "E:\\Master Thesis\\iml-dl\\data\\augmented_train\\*"
           val:
-            - "/content/iml-dl/data/augmented_val/*"
+            - "./data/augmented_val/*"
           test:
-            - "/content/iml-dl/data/augmented_test/*"
+            - "./data/augmented_test/*"
         file_type: "*png"
         target_size: *target_size
         batch_size: 16

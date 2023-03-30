@@ -18,7 +18,8 @@ import sys
 sys.path.insert(0, '../iml-dl')
 from dl_utils.config_utils import *
 import warnings
-
+import os
+os.environ["KMP_DUPLICATE_LIB_OK"]="TRUE"
 
 class Main(object):
 
