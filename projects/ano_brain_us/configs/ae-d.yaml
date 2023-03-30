@@ -7,8 +7,8 @@ checkpoint_path: &checkpoint_path ./weights/phanes_miccai/sota/
 #
 experiment:
   name: ae-d
-  task: test
-  weights: "./weights/phanes_miccai/sota/2023_03_23_16_55_12_789193/best_model.pt"
+  task: train
+  weights: #"./weights/phanes_miccai/sota/2023_03_23_16_55_12_789193/best_model.pt"
 #
 device: cpu
 configurator:

@@ -6,13 +6,13 @@ checkpoint_path: &checkpoint_path ./weights/phanes_miccai/sota/
 # Experiment
 #
 experiment:
-  name: SIVAE_new_16batch
-  task: test
-  weights: "./weights/phanes_miccai/sota/2023_03_28_17_08_05_730580/best_model.pt"
+  name: SIVAE_new_16batch_colab
+  task: train
+  weights: #"./weights/phanes_miccai/sota/2023_03_28_17_08_05_730580/best_model.pt"
 #  weights: './weights/phanes_miccai/sota/2023_01_31_16_11_37_011460/latest_model.pt'./weights/fast_mri/sota/2022_11_26_10_31_32_965404
 
 #
-device: cpu
+device: gpu
 configurator:
   module_name: core.Configurator
   class_name: DLConfigurator
@@ -43,7 +43,7 @@ trainer:
   params:
     input_size: *target_size
     checkpoint_path: *checkpoint_path
-    nr_epochs: 200
+    nr_epochs: 800
     loss:
       module_name: optim.losses.ln_losses
       class_name: L2
@@ -64,11 +64,11 @@ trainer:
           class_name: DefaultDataset
         data_dir:
           train:
-            - "E:\\Master Thesis\\iml-dl\\data\\augmented_train\\*"
+            - "/content/iml-dl/data/augmented_train/*"
           val:
-            - "./data/augmented_val/*"
+            - "/content/iml-dl/data/augmented_val/*"
           test:
-            - "./data/augmented_test/*"
+            - "/content/iml-dl/data/augmented_test/*"
         file_type: "*png"
         target_size: *target_size
         batch_size: 16

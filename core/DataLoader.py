@@ -15,9 +15,10 @@ import logging
 import glob
 from PIL import Image
 
+
 class DefaultDataset(Dataset):
 
-    def __init__(self, data_dir, file_type='', label_dir=None, mask_dir=None, target_size=(64, 64), test=False):
+    def __init__(self, data_dir, file_type='', label_dir=None, mask_dir=None, target_size=(128, 128), test=False):
         """
         @param data_dir: str
             path to directory or csv file containing data
@@ -35,10 +36,11 @@ class DefaultDataset(Dataset):
         super(DefaultDataset, self).__init__()
         self.label_dir = label_dir
         self.target_size = target_size
+        print(data_dir)
         if 'csv' in data_dir[0]:
             self.files = get_data_from_csv(data_dir)
         else:
-            self.files = [glob.glob(data_dir_i + file_type) for data_dir_i in data_dir]
+            self.files = sorted(glob.glob(data_dir[0]))
         self.nr_items = len(self.files)
 
         logging.info('DefaultDataset::init(): Loading {} files from: {}'.format(self.nr_items, data_dir))
@@ -88,7 +90,7 @@ class DefaultDataset(Dataset):
             return 0
 
     def __getitem__(self, idx):
-        return self.im_t(self.files[idx]), self.get_label(idx)
+        return self.im_t[idx]
 
     def __len__(self):
         return self.nr_items
