@@ -2,4 +2,8 @@
 wandb*
 */__pycache__
 */**/__pycache__
+data/ATLAS/*
+data/CAPS_IXI/*
+data/fastMRI/*
+projects/**/weights/*
 !data/T2star_loader.py
