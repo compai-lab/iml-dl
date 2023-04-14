@@ -35,6 +35,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+from net_utils.simplex_noise import generate_simplex_noise
+
 
 class DDIMScheduler(nn.Module):
     """
@@ -71,6 +73,7 @@ class DDIMScheduler(nn.Module):
         set_alpha_to_one: bool = True,
         steps_offset: int = 0,
         prediction_type: str = "epsilon",
+        noise_type = "gaussian",
     ) -> None:
         super().__init__()
         self.beta_schedule = beta_schedule
@@ -93,6 +96,7 @@ class DDIMScheduler(nn.Module):
         self.num_train_timesteps = num_train_timesteps
         self.alphas = 1.0 - self.betas
         self.alphas_cumprod = torch.cumprod(self.alphas, dim=0)
+        self.noise_type = noise_type
 
         # At every step in ddim, we are looking into the previous alphas_cumprod
         # For the final step, there is no previous alphas_cumprod because we are already at 0
@@ -127,10 +131,10 @@ class DDIMScheduler(nn.Module):
             )
 
         self.num_inference_steps = num_inference_steps
-        step_ratio = self.num_train_timesteps // self.num_inference_steps
+        self.step_ratio = self.num_train_timesteps // self.num_inference_steps
         # creates integer timesteps by multiplying by ratio
         # casting to int to avoid issues when num_inference_step is power of 3
-        timesteps = (np.arange(0, num_inference_steps) * step_ratio).round()[::-1].copy().astype(np.int64)
+        timesteps = (np.arange(0, num_inference_steps) * self.step_ratio).round()[::-1].copy().astype(np.int64)
         self.timesteps = torch.from_numpy(timesteps).to(device)
         self.timesteps += self.steps_offset
 
@@ -218,7 +222,10 @@ class DDIMScheduler(nn.Module):
         if eta > 0:
             # randn_like does not support generator https://github.com/pytorch/pytorch/issues/27072
             device = model_output.device if torch.is_tensor(model_output) else "cpu"
-            noise = torch.randn(model_output.shape, dtype=model_output.dtype, generator=generator).to(device)
+            if self.noise_type == "simplex":
+                noise = generate_simplex_noise(model_output, timestep).to(device)
+            else: # gaussian
+                noise = torch.randn(model_output.shape, dtype=model_output.dtype, generator=generator).to(device)
             variance = self._get_variance(timestep, prev_timestep) ** (0.5) * eta * noise
 
             pred_prev_sample = pred_prev_sample + variance

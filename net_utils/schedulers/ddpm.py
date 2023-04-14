@@ -35,6 +35,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+from ..simplex_noise import generate_simplex_noise
+
 
 class DDPMScheduler(nn.Module):
     """
@@ -66,6 +68,7 @@ class DDPMScheduler(nn.Module):
         variance_type: str = "fixed_small",
         clip_sample: bool = True,
         prediction_type: str = "epsilon",
+        noise_type: str = "gaussian",
     ) -> None:
         super().__init__()
         self.beta_schedule = beta_schedule
@@ -90,6 +93,7 @@ class DDPMScheduler(nn.Module):
         self.alphas = 1.0 - self.betas
         self.alphas_cumprod = torch.cumprod(self.alphas, dim=0)
         self.one = torch.tensor(1.0)
+        self.noise_type = noise_type
 
         self.clip_sample = clip_sample
         self.variance_type = variance_type
@@ -230,9 +234,12 @@ class DDPMScheduler(nn.Module):
         # 6. Add noise
         variance = 0
         if timestep > 0:
-            noise = torch.randn(
-                model_output.size(), dtype=model_output.dtype, layout=model_output.layout, generator=generator
-            ).to(model_output.device)
+            if self.noise_type == "simplex":
+                noise = generate_simplex_noise(model_output, timestep).to(model_output.device)
+            else: # gaussian
+                noise = torch.randn(
+                    model_output.size(), dtype=model_output.dtype, layout=model_output.layout, generator=generator
+                ).to(model_output.device)
             variance = (self._get_variance(timestep, predicted_variance=predicted_variance) ** 0.5) * noise
 
         pred_prev_sample = pred_prev_sample + variance
