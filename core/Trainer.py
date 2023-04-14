@@ -85,7 +85,7 @@ class Trainer:
         wandb.watch(self.model)
         input_size = (1, 1, self.training_params['input_size'][0],  self.training_params['input_size'][1])
         print(f'Input size of summery is: {input_size}')
-        self.summarize_model(self.model, input_size)
+        summary(model, input_size)
 
         # Optimizer
         opt_params = training_params['optimizer_params']
@@ -128,9 +128,6 @@ class Trainer:
 
     def get_nr_train_samples(self):
         return self.num_train_samples
-    
-    def summarize_model(self, model, input_size):
-        summary(model, input_size)
 
     def train(self, model_state=None, opt_state=None, epoch=0):
         """
