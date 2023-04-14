@@ -14,20 +14,24 @@
 from __future__ import annotations
 
 import math
+import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
 from net_utils.diffusion_unet import DiffusionModelUNet
 from net_utils.schedulers.ddpm import DDPMScheduler
+from net_utils.schedulers.ddim import DDIMScheduler
 
 from tqdm import tqdm
+
+from net_utils.simplex_noise import generate_simplex_noise
 has_tqdm = True
 
 class DDPM(nn.Module):
     
   def __init__(self, spatial_dims=2, in_channels=1, out_channels=1, num_channels=(128, 256, 256), attention_levels=(False,True,True), 
-               num_res_blocks=1, num_head_channels=256):
+               num_res_blocks=1, num_head_channels=256, inference_max_step=1000, inference_scheduler="ddpm", inference_steps=1000, noise_type="gaussian"):
     super().__init__()
     self.unet = DiffusionModelUNet(
         spatial_dims=spatial_dims,
@@ -38,9 +42,24 @@ class DDPM(nn.Module):
         num_res_blocks=num_res_blocks,
         num_head_channels=num_head_channels,
     )
-    self.scheduler = DDPMScheduler(num_train_timesteps=1000)
+    self.inference_max_step = inference_max_step
+    self.scheduler = DDPMScheduler(num_train_timesteps=1000, noise_type=noise_type)
+    
+    if inference_scheduler == "ddim":
+        self.inference_scheduler = DDIMScheduler(num_train_timesteps=1000, noise_type=noise_type)
+    else :
+        self.inference_scheduler = DDPMScheduler(num_train_timesteps=1000, noise_type=noise_type)
+        self.inference_scheduler.step_ratio = 1
+    self.inference_scheduler.set_timesteps(inference_steps)
 
-  def forward(self, inputs, noise, timesteps, condition=None):
+
+  def forward(self, inputs, noise=None, timesteps=None, condition=None):
+    # only for torch_summary to work
+    if noise is None:
+        noise = torch.randn_like(inputs)
+    if timesteps is None:
+        timesteps = torch.randint(0, self.scheduler.num_train_timesteps, (inputs.shape[0],), device=inputs.device).long()
+
     noisy_image = self.scheduler.add_noise(original_samples=inputs, noise=noise, timesteps=timesteps)
     return self.unet(x=noisy_image, timesteps=timesteps, context=condition)
 
@@ -48,6 +67,7 @@ class DDPM(nn.Module):
   def sample(
       self,
       input_noise: torch.Tensor,
+      inference_max_step: int | None,
       save_intermediates: bool | None = False,
       intermediate_steps: int | None = 100,
       conditioning: torch.Tensor | None = None,
@@ -63,10 +83,15 @@ class DDPM(nn.Module):
           verbose: if true, prints the progression bar of the sampling process.
       """
       image = input_noise
-      if verbose and has_tqdm:
-          progress_bar = tqdm(self.scheduler.timesteps)
+      if inference_max_step is None:
+          timesteps = self.inference_scheduler.timesteps
       else:
-          progress_bar = iter(self.scheduler.timesteps)
+          timesteps = torch.from_numpy(np.append(np.arange(1, inference_max_step)[::-self.inference_scheduler.step_ratio], 0).copy())
+
+      if verbose and has_tqdm:
+          progress_bar = tqdm(timesteps)
+      else:
+          progress_bar = iter(timesteps)
       intermediates = []
       for t in progress_bar:
           # 1. predict noise model_output
@@ -75,28 +100,27 @@ class DDPM(nn.Module):
           )
 
           # 2. compute previous image: x_t -> x_t-1
-          image, _ = self.scheduler.step(model_output, t, image)
+          image, _ = self.inference_scheduler.step(model_output, t, image)
           if save_intermediates and t % intermediate_steps == 0:
               intermediates.append(image)
       if save_intermediates:
           return image, intermediates
       else:
           return image
-      
+
   @torch.no_grad()
   # function to noise and then sample from the noise given an image to get healthy reconstructions of anomalous input images
   def sample_from_image(
       self,
       inputs: torch.Tensor,
-      noise: str = "gaussian", 
-      # TODO: adapt different noise levels, expectation: it won't work with 1000 steps bc nothing of the image is left
-      timesteps: int | None = 800,
+      inference_max_step: int | None = 800,
       save_intermediates: bool | None = False,
       intermediate_steps: int | None = 100,
       conditioning: torch.Tensor | None = None,
       verbose: bool = True,
   ) -> torch.Tensor | tuple[torch.Tensor, list[torch.Tensor]]:
       """
+      Sample to specified noise level and use this as noisy input to sample back.
       Args:
           inputs: input images, NxCxHxW[xD]
           scheduler: diffusion scheduler. If none provided will use the class attribute scheduler
@@ -105,12 +129,15 @@ class DDPM(nn.Module):
           conditioning: Conditioning for network input.
           verbose: if true, prints the progression bar of the sampling process.
       """
-      if noise == "gaussian":
+      if self.scheduler.noise_type == "simplex":
+        noise = generate_simplex_noise(inputs, inference_max_step).to(inputs.device)
+      else: # gaussian
         noise = torch.randn_like(inputs)
-      t = torch.full(inputs.shape[:1], timesteps, device=inputs.device).long()
-      noised_image = self.scheduler.add_noise(original_samples=inputs, noise=noise, timesteps=t) # TODO: check, if this is correct, this may not equal to noising only to level 800
-      image = self.sample(input_noise=noised_image, save_intermediates=save_intermediates, intermediate_steps=intermediate_steps, conditioning=conditioning, verbose=verbose)
-      return image
+
+      t = torch.full((inputs.shape[0],), inference_max_step, device=inputs.device).long()
+      noised_image = self.scheduler.add_noise(original_samples=inputs, noise=noise, timesteps=t)
+      image = self.sample(input_noise=noised_image, inference_max_step=inference_max_step, save_intermediates=save_intermediates, intermediate_steps=intermediate_steps, conditioning=conditioning, verbose=verbose)
+      return image, {'z': None}
 
   @torch.no_grad()
   def get_likelihood(
@@ -144,9 +171,13 @@ class DDPM(nn.Module):
       else:
           progress_bar = iter(self.scheduler.timesteps)
       intermediates = []
-      noise = torch.randn_like(inputs).to(inputs.device)
       total_kl = torch.zeros(inputs.shape[0]).to(inputs.device)
       for t in progress_bar:
+          # Does this change things if we use different noise for every step?? before it was just one gaussian noise for all steps
+          if self.scheduler.noise_type == "simplex":
+            noise = generate_simplex_noise(inputs, t).to(inputs.device)
+          else: # gaussian
+            noise = torch.randn_like(inputs)
           timesteps = torch.full(inputs.shape[:1], t, device=inputs.device).long()
           noisy_image = self.scheduler.add_noise(original_samples=inputs, noise=noise, timesteps=timesteps)
           model_output = self.unet(x=noisy_image, timesteps=timesteps, context=conditioning)
