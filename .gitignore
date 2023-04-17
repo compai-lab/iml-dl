@@ -5,3 +5,4 @@ wandb*
 data/ATLAS/*
 data/CAPS_IXI/*
 data/fastMRI/*
+projects/**/weights/*
