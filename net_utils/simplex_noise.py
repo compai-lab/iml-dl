@@ -28,6 +28,15 @@ import torch
 from matplotlib import animation
 from numba import njit, prange
 
+def generate_noise(noise_type, x, timestep=None, generator=None):
+    if noise_type == "simplex":
+        assert timestep is not None
+        noise = generate_simplex_noise(x, timestep).to(x.device)
+    else: # gaussian
+        noise = torch.randn(
+            x.shape, dtype=x.dtype, layout=x.layout, generator=generator
+        ).to(x.device)
+    return noise
 
 def generate_simplex_noise(x, t, random_param=False, octave=6, persistence=0.8, frequency=64,
         in_channels=1
@@ -274,7 +283,7 @@ def _extrapolate3(perm, perm_grad_index3, xsb, ysb, zsb, dx, dy, dz):
 
 @njit(cache=True)
 def _noise2(x, y, perm):
-    # Place input coordinates onto grid.
+    # Place x coordinates onto grid.
     stretch_offset = (x + y) * STRETCH_CONSTANT2
     xs = x + stretch_offset
     ys = y + stretch_offset
@@ -384,7 +393,7 @@ def _noise2a(x, y, perm):
 
 @njit(cache=True)
 def _noise3(x, y, z, perm, perm_grad_index3):
-    # Place input coordinates on simplectic honeycomb.
+    # Place x coordinates on simplectic honeycomb.
     stretch_offset = (x + y + z) * STRETCH_CONSTANT3
     xs = x + stretch_offset
     ys = y + stretch_offset

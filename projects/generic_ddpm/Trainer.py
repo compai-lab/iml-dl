@@ -3,7 +3,7 @@ from core.Trainer import Trainer
 from time import time
 import wandb
 import logging
-from net_utils.simplex_noise import generate_simplex_noise
+from net_utils.simplex_noise import generate_noise, generate_simplex_noise
 from optim.losses.image_losses import *
 from optim.losses.ln_losses import *
 from torch.cuda.amp import GradScaler, autocast
@@ -58,15 +58,12 @@ class PTrainer(Trainer):
                 with autocast(enabled=True):
                     # Create timesteps
                     timesteps = torch.randint(
-                        0, self.model.scheduler.num_train_timesteps, (transformed_images.shape[0],), device=images.device
+                        0, self.model.train_scheduler.num_train_timesteps, (transformed_images.shape[0],), device=images.device
                     ).long()
 
                     # Generate random noise and noisy images
-                    if self.model.scheduler.noise_type == "simplex":
-                        noise = generate_simplex_noise(images, self.model.scheduler.num_train_timesteps).to(self.device)
-                    else: # gaussian
-                        noise = torch.randn_like(images).to(self.device)
-
+                    noise = generate_noise(self.model.train_scheduler.noise_type, images, self.model.train_scheduler.num_train_timesteps)
+                    
                     # Get model prediction
                     noise_pred = self.model(inputs=images, noise=noise, timesteps=timesteps)
 
@@ -130,7 +127,7 @@ class PTrainer(Trainer):
                 # Forward pass, x_ is the reconstructed image, x_rec is the image after the encoding process
                 #x_, x_rec = self.test_model(x)
 
-                x_, _ = self.test_model.sample_from_image(x, inference_max_step=self.model.inference_max_step)
+                x_, _ = self.test_model.sample_from_image(x, noise_level=self.model.noise_level)
                 loss_rec = self.criterion_rec(x_, x)
                 loss_mse = self.criterion_MSE(x_, x)
                 loss_pl = self.criterion_PL(x_, x)

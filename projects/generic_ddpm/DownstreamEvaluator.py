@@ -602,7 +602,7 @@ class PDownstreamEvaluator(DownstreamEvaluator):
                 masks = data[1].to(self.device)
                 masks[masks>0]=1
                 # print(torch.min(masks), torch.max(masks))
-                x_rec, x_rec_dict = self.model.sample_from_image(x, inference_max_step=self.model.inference_max_step)#, mask=masks)
+                x_rec, x_rec_dict = self.model.sample_from_image(x, noise_level=self.model.noise_level)#, mask=masks)
                 saliency = None
                 x_rec = torch.clamp(x_rec, 0, 1)
                 x_res = np.abs(x_rec.cpu().detach().numpy() - x.cpu().detach().numpy())
