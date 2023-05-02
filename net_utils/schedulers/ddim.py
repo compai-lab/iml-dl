@@ -77,17 +77,21 @@ class DDIMScheduler(Scheduler):
 
         # standard deviation of the initial noise distribution
         self.init_noise_sigma = 1.0
-
+        self.steps_offset = steps_offset
         self.timesteps = torch.from_numpy(np.arange(0, self.num_train_timesteps)[::-1].astype(np.int64))
 
-        self.steps_offset = steps_offset
+    def get_timesteps(self, noise_level):
+        """
+        Returns the discrete timesteps used for the diffusion chain. Supporting function to be run before inference.
 
-        # default the number of inference timesteps to the number of train steps
-        self.set_timesteps(self.num_train_timesteps)
+        Args:
+            noise_level: the noise level used to generate the samples.
+        """
+        return torch.from_numpy(np.append(np.arange(1, noise_level+1)[::-self.step_ratio], 0).copy())
 
     def set_timesteps(self, num_inference_steps: int, device: str | torch.device | None = None) -> None:
         """
-        Sets the discrete timesteps used for the diffusion chain. Supporting function to be run before inference.
+        Sets the discrete timesteps used for the diffusion chain. Initialises the timesteps attribute.
 
         Args:
             num_inference_steps: number of diffusion steps used when generating samples with a pre-trained model.
@@ -102,11 +106,9 @@ class DDIMScheduler(Scheduler):
 
         self.num_inference_steps = num_inference_steps
         self.step_ratio = self.num_train_timesteps // self.num_inference_steps
-        # creates integer timesteps by multiplying by ratio
-        # casting to int to avoid issues when num_inference_step is power of 3
-        timesteps = (np.arange(0, num_inference_steps) * self.step_ratio).round()[::-1].copy().astype(np.int64)
-        self.timesteps = torch.from_numpy(timesteps).to(device)
-        self.timesteps += self.steps_offset
+
+        self.timesteps = self.get_timesteps(1000).to(device)
+        # self.timesteps += self.steps_offset # activate if needed
 
     def _get_variance(self, timestep: int, prev_timestep: torch.Tensor) -> torch.Tensor:
         alpha_prod_t = self.alphas_cumprod[timestep]

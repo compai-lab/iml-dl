@@ -65,10 +65,11 @@ class PTrainer(Trainer):
                     noise = generate_noise(self.model.train_scheduler.noise_type, images, self.model.train_scheduler.num_train_timesteps)
                     
                     # Get model prediction
-                    noise_pred = self.model(inputs=images, noise=noise, timesteps=timesteps)
+                    pred = self.model(inputs=transformed_images, noise=noise, timesteps=timesteps)
 
                     # Use L1 for noise prediction
-                    loss = self.criterion_rec(noise_pred.float(), noise.float())
+                    target = transformed_images if self.model.prediction_type == 'sample' else noise
+                    loss = self.criterion_rec(pred.float(), target.float())
 
                 scaler.scale(loss).backward()
                 scaler.step(self.optimizer)
@@ -95,7 +96,6 @@ class PTrainer(Trainer):
         return self.best_weights, self.best_opt_weights
 
     def test(self, model_weights, test_data, task='Val', opt_weights=None, epoch=0):
-        pass
         """
         :param model_weights: weights of the global model
         :return: dict

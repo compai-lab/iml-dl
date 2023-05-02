@@ -41,7 +41,8 @@ class DDPM(nn.Module):
                  inference_scheduler="ddpm",
                  inference_steps=1000,
                  noise_level=1000,
-                 noise_type="gaussian"):
+                 noise_type="gaussian",
+                 prediction_type="epsilon",):
         super().__init__()
         self.unet = DiffusionModelUNet(
             spatial_dims=spatial_dims,
@@ -53,19 +54,22 @@ class DDPM(nn.Module):
             num_head_channels=num_head_channels,
         )
         self.noise_level = noise_level
+        self.prediction_type = prediction_type
+
+        # set up scheduler and timesteps
         if train_scheduler == "ddpm":
             self.train_scheduler = DDPMScheduler(
-                num_train_timesteps=1000, noise_type=noise_type)
-        else: # TODO: add other schedulers here
+                num_train_timesteps=1000, noise_type=noise_type, prediction_type=prediction_type)
+        else:
             raise NotImplementedError(f"{train_scheduler} does is not implemented for {self.__class__}")
 
         if inference_scheduler == "ddim":
             self.inference_scheduler = DDIMScheduler(
-                num_train_timesteps=1000, noise_type=noise_type)
+                num_train_timesteps=1000, noise_type=noise_type, prediction_type=prediction_type)
         else:
             self.inference_scheduler = DDPMScheduler(
-                num_train_timesteps=1000, noise_type=noise_type)
-            self.inference_scheduler.step_ratio = 1
+                num_train_timesteps=1000, noise_type=noise_type, prediction_type=prediction_type)
+
         self.inference_scheduler.set_timesteps(inference_steps)
 
     def forward(self, inputs, noise=None, timesteps=None, condition=None):
@@ -100,12 +104,7 @@ class DDPM(nn.Module):
             verbose: if true, prints the progression bar of the sampling process.
         """
         image = input_noise
-        if noise_level is None:
-            timesteps = self.inference_scheduler.timesteps
-        else:
-            timesteps = torch.from_numpy(np.append(np.arange(1, noise_level)[
-                ::-self.inference_scheduler.step_ratio], 0).copy())
-
+        timesteps = self.inference_scheduler.get_timesteps(noise_level)
         if verbose and has_tqdm:
             progress_bar = tqdm(timesteps)
         else:
@@ -131,7 +130,7 @@ class DDPM(nn.Module):
     def sample_from_image(
         self,
         inputs: torch.Tensor,
-        noise_level: int | None = 800,
+        noise_level: int | None = 500,
         save_intermediates: bool | None = False,
         intermediate_steps: int | None = 100,
         conditioning: torch.Tensor | None = None,

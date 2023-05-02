@@ -1,7 +1,7 @@
-name: DDIM_170_simplex
-target_size: &target_size !!python/tuple [128, 128]
-train_batch_size: &tbatch_size 16
-downstream_batch_size: &dbatch_size 16
+name: Pretraining_1000ep_sample_l1
+target_size: &target_size !!python/tuple [64, 64]
+train_batch_size: &tbatch_size 64
+downstream_batch_size: &dbatch_size 64
 checkpoint_path: &checkpoint_path ./projects/generic_ddpm/weights/ixi/
 #
 # Experiment
@@ -9,7 +9,7 @@ checkpoint_path: &checkpoint_path ./projects/generic_ddpm/weights/ixi/
 experiment:
   name: DDPM
   task: train
-  weights:  #'./projects/generic_ddpm/weights/ixi/best_model.pt'
+  weights: #./projects/generic_ddpm/weights/pretrained/2023_04_24_08_54_02_438945/best_model.pt # gaussian: /2023_04_24_08_54_02_438945 (L2, 1000 epochs)
 #
 device: gpu
 configurator:
@@ -36,11 +36,14 @@ model:
       - True
     num_res_blocks: 1
     num_head_channels: 256
-    inference_max_step: 170
-    inference_scheduler: "ddim"
-    inference_steps: 200
-    noise_type: "simplex"
 
+    # Scheduling and noising scheme
+    train_scheduler: "ddpm"
+    inference_scheduler: "ddpm"
+    inference_steps: 200
+    noise_level: 300
+    noise_type: "gaussian"
+    prediction_type: "epsilon"
 
 #
 # Trainer

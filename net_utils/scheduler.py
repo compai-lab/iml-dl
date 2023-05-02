@@ -75,8 +75,7 @@ class Scheduler(nn.Module):
             num_inference_steps: number of diffusion steps used when generating samples with a pre-trained model.
             device: target device to put the data.
         """
-        #self.timesteps = torch.from_numpy(timesteps).to(device)
-        raise NotImplementedError("[Trainer::train]: Please Implement train() method")
+        raise NotImplementedError("[Trainer::train]: Please Implement set_timesteps method")
 
     def step(
         self, model_output: torch.Tensor, timestep: int, sample: torch.Tensor, generator: torch.Generator | None = None
@@ -94,8 +93,7 @@ class Scheduler(nn.Module):
         Returns:
             pred_prev_sample: Predicted previous sample
         """
-        #return pred_prev_sample, pred_original_sample
-        raise NotImplementedError("[Trainer::train]: Please Implement train() method")
+        raise NotImplementedError("[Trainer::train]: Please Implement step() method")
 
     def add_noise(self, original_samples: torch.Tensor, noise: torch.Tensor, timesteps: torch.Tensor) -> torch.Tensor:
         """
