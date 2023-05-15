@@ -83,7 +83,7 @@ class DDPMScheduler(Scheduler):
                 f" maximal {self.num_train_timesteps} timesteps."
             )
 
-        timesteps = torch.from_numpy(np.arange(0, self.num_train_timesteps + 1)[::-1].copy())
+        timesteps = torch.from_numpy(np.arange(0, noise_level + 1)[::-1].copy())
         return timesteps
 
     def set_timesteps(self, num_inference_steps: int, device: str | torch.device | None = None) -> None:
