@@ -1,4 +1,4 @@
-name: MorphAEus_beta_1e-2_lr_1e-3_alfa_0.0_nodeformer_no_ncc_l2_loss_deconv_transpose
+name: MorphAEus_beta_1e-2_lr_1e-3_alfa_0.1_nodeformer_no_ncc
 target_size: &target_size !!python/tuple [128, 128]
 dbatch_size: &dbatch_size 1
 checkpoint_path: &checkpoint_path ./weights/fast_mri/sota/
@@ -65,7 +65,7 @@ trainer:
       class_name: L2
       params:
     patience: 200
-    alfa: 0.0
+    alfa: 0.1
     # Optimizer
     # Optimizer
     optimizer_params:
