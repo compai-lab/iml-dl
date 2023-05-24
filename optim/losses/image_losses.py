@@ -74,9 +74,9 @@ class NCC:
         var_prod = torch.clamp(I_var * J_var, min=0)  # For stability, avoid infinity
         cc = cross * cross / (var_prod + 1e-5)
 
-        # return 1-torch.mean(cc)
+        return 1-torch.mean(cc)
 
-        return 1-cc
+        #return 1-cc
 
 class DisplacementRegularizer2D(torch.nn.Module):
     """
@@ -123,7 +123,68 @@ class DisplacementRegularizer2D(torch.nn.Module):
         else:
             raise Exception('Not recognised local regulariser!')
         return energy
+    
+class MedicalNetPerceptualSimilarity(_Loss):
+    """
+    Component to perform the perceptual evaluation with the networks pretrained by Chen, et al. "Med3D: Transfer
+    Learning for 3D Medical Image Analysis". This class uses torch Hub to download the networks from
+    "Warvito/MedicalNet-models".
+    Args:
+        net: {``"medicalnet_resnet10_23datasets"``, ``"medicalnet_resnet50_23datasets"``}
+            Specifies the network architecture to use. Defaults to ``"medicalnet_resnet10_23datasets"``.
+        verbose: if false, mute messages from torch Hub load function.
+    """
 
+    def __init__(self, net: str = "medicalnet_resnet10_23datasets", verbose: bool = False, device: str = 'cuda') -> None:
+        super().__init__()
+        self.device=device
+        torch.hub._validate_not_a_forked_repo = lambda a, b, c: True
+        self.model = torch.hub.load("Warvito/MedicalNet-models", model=net, verbose=verbose)
+        self.eval().to(self.device)
+
+        for param in self.parameters():
+            param.requires_grad = False
+
+    def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """
+        Compute perceptual loss using MedicalNet 3D networks. The input and target tensors are inputted in the
+        pre-trained MedicalNet that is used for feature extraction. Then, these extracted features are normalised across
+        the channels. Finally, we compute the difference between the input and target features and calculate the mean
+        value from the spatial dimensions to obtain the perceptual loss.
+        Args:
+            input: 3D input tensor with shape BCDHW.
+            target: 3D target tensor with shape BCDHW.
+        """
+        input = medicalnet_intensity_normalisation(input)
+        target = medicalnet_intensity_normalisation(target)
+
+        # Get model outputs
+        outs_input = self.model.forward(input)
+        outs_target = self.model.forward(target)
+
+        # Normalise through the channels
+        feats_input = normalize_tensor(outs_input)
+        feats_target = normalize_tensor(outs_target)
+
+        results = (feats_input - feats_target) ** 2
+        results = spatial_average_3d(results.sum(dim=1, keepdim=True), keepdim=True)
+
+        return results
+    
+def spatial_average_3d(x: torch.Tensor, keepdim: bool = True) -> torch.Tensor:
+    return x.mean([2, 3, 4], keepdim=keepdim)
+
+
+def normalize_tensor(x: torch.Tensor, eps: float = 1e-10) -> torch.Tensor:
+    norm_factor = torch.sqrt(torch.sum(x**2, dim=1, keepdim=True))
+    return x / (norm_factor + eps)
+
+
+def medicalnet_intensity_normalisation(volume):
+    """Based on https://github.com/Tencent/MedicalNet/blob/18c8bb6cd564eb1b964bffef1f4c2283f1ae6e7b/datasets/brains18.py#L133"""
+    mean = volume.mean()
+    std = volume.std()
+    return (volume - mean) / std
 
 class PerceptualLoss(_Loss):
     """

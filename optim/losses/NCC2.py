@@ -81,7 +81,7 @@ class NormalizedCrossCorrelation(nn.Module):
                             self._return_map, self._reduction, self._eps)
 
 
-class NCC(NormalizedCrossCorrelation):
+class NCC2(NormalizedCrossCorrelation):
     """ N-dimensional normalized cross correlation loss (NCC-loss)
     Args:
         eps (float, optional): Epsilon value for numerical stability. Defaults to 1e-8.
@@ -90,7 +90,7 @@ class NCC(NormalizedCrossCorrelation):
             ``'mean'`` | ``'sum'``. Defaults to ``'mean'``.
     """
     def __init__(self):
-        super(NCC, self).__init__()
+        super(NCC2, self).__init__()
 
     def forward(self, x, y):
         gc = super().forward(x, y)

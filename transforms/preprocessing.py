@@ -6,7 +6,7 @@ from monai.config.type_definitions import NdarrayOrTensor
 import torchvision
 from torchvision.io.image import read_image
 import torch.nn.functional as F
-
+import torchio
 
 
 class ReadImage(Transform):
@@ -26,14 +26,20 @@ class ReadImage(Transform):
             img = (img * 255).astype(np.uint8)
             return torch.tensor(img)
         elif '.jpeg' in path or '.jpg' in path or '.png' in path:
-            return read_image(path)
+            try:
+             return read_image(path)
+            except TypeError :
+                print(path)
+                pass
         elif '.nii.gz' in path:
             import nibabel as nip
             from nibabel.imageglobals import LoggingOutputSuppressor
             with LoggingOutputSuppressor():
                 img_obj = nip.load(path)
                 img_np = np.array(img_obj.get_fdata(), dtype=np.float32)
-                img_t = torch.Tensor(img_np.copy())
+                # img_t = torch.Tensor(img_np.copy())
+                img_t = torch.Tensor(img_np[:, :, :].copy()) # Transposed 3D MRI brains
+                # img_t = torch.Tensor(np.flipud(img_np[:, :, :].T).copy()) # Transposed 3D MRI brains
                 # img_t = torch.Tensor(np.flipud(img_np[:, :, 95].T).copy()) # Mid Axial slice of MRI brains
             return img_t
         elif '.nii' in path:
@@ -85,6 +91,7 @@ class To01:
         """
         Apply the transform to `img`.
         """
+      #  print(torch.max(img))
         return img/self.max_val
 
 
@@ -148,6 +155,8 @@ class AddChannelIfNeeded(Transform):
     """
     Adds a 1-length channel dimension to the input image, if input is 2D
     """
+    def __init__(self, dim=2):
+        self.dim=dim
 
     backend = [TransformBackends.TORCH, TransformBackends.NUMPY]
 
@@ -155,8 +164,7 @@ class AddChannelIfNeeded(Transform):
         """
         Apply the transform to `img`.
         """
-        if len(img.shape) == 2:
-            # print(f'Added channel: {(img[None,...].shape)}')
+        if (self.dim == 2 and len(img.shape) == 2) or (self.dim == 3 and len(img.shape) == 3):
             return img[None, ...]
         else:
             return img
@@ -200,6 +208,38 @@ class Slice(Transform):
         return img_slice
 
 
+class Pad3D(Transform):
+    """
+    Pad with zeros
+    """
+    backend = [TransformBackends.TORCH, TransformBackends.NUMPY]
+    def __init__(self, pid= (1,1), type='center'):
+        self.pid = pid
+        self.type = type
+
+    def __call__(self, img: NdarrayOrTensor) -> NdarrayOrTensor:
+        img = torch.squeeze(img)
+        max_dim = max(img.shape[0], img.shape[1])
+        z = 0
+        if len(img.shape) > 2:
+            max_dim = max(max_dim, img.shape[2])
+            z = max_dim - img.shape[2]
+
+        x = max_dim - img.shape[0]
+        y = max_dim - img.shape[1]
+        if self.type == 'center':
+            self.pid = (int(z/2), z-int(z/2), int(y/2), y-int(y/2), int(x/2), x-int(x/2)) if len(img.shape) > 2\
+                else (int(y / 2), y - int(y / 2), int(x / 2), x - int(x / 2))
+        elif self.type == 'end':
+            self.pid = (z, 0, y, 0, x, 0) if len(img.shape) > 2 else (y, 0, x, 0)
+        else:
+            self.pid = (0, z, 0, y, 0, x) if len(img.shape) > 2 else (0, y, 0, x)
+        pad_val = torch.min(img)
+        self.pid = (3,3,0,0,0,0)
+        img_pad = F.pad(img, self.pid, 'constant', pad_val)
+
+        return img_pad
+    
 class Pad(Transform):
     """
     Pad with zeros
@@ -219,6 +259,14 @@ class Pad(Transform):
         img_pad = F.pad(img, self.pid, 'constant', pad_val)
 
         return img_pad
+class Resize3D(Transform):
+    def __init__(self, target_size):
+        self.target_size = target_size
+    def __call__(self, img: NdarrayOrTensor) -> NdarrayOrTensor:
+        # print(img.shape)
+        # self.target_size = int(img.shape // 2)
+        self.resize = torchio.transforms.Resize(self.target_size)
+        return self.resize(img)
 
 
 class Zoom(Transform):

@@ -99,7 +99,7 @@ class DefaultDataLoader(pl.LightningDataModule):
         self.mask_dir = args['mask_dir'] if 'mask_dir' in akeys else {'train': None, 'val': None, 'test': None}
         self.target_size = args['target_size'] if 'target_size' in akeys else (64, 64)
         self.batch_size = args['batch_size'] if 'batch_size' in akeys else 8
-        self.num_workers = args['num_workers'] if 'num_workers' in akeys else 2
+        self.num_workers = args['num_workers'] if 'num_workers' in akeys else 1
         assert type(self.data_dir) is dict, 'DefaultDataset::init():  data_dir variable should be a dictionary'
         if dataset_module is not None:
             assert 'module_name' in dataset_module.keys() and 'class_name' in dataset_module.keys(),\

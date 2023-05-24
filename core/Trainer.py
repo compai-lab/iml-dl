@@ -11,7 +11,6 @@ from torchinfo import summary
 from torch.nn import MSELoss
 from torch.optim.adam import Adam
 from torch.optim.lr_scheduler import ExponentialLR, CosineAnnealingLR, ReduceLROnPlateau
-from optim.losses import PerceptualLoss
 import os
 
 
@@ -119,7 +118,6 @@ class Trainer:
                 if transform_class is not None else None
 
         self.criterion_MSE = MSELoss().to(device)
-        self.criterion_PL = PerceptualLoss(device=device)
         self.min_val_loss = np.inf
         self.alfa = training_params['alfa'] if 'alfa' in training_params.keys() else 0
 

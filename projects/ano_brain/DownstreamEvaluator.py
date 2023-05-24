@@ -8,7 +8,6 @@ logging.getLogger("matplotlib").setLevel(logging.WARNING)
 import wandb
 import plotly.graph_objects as go
 import seaborn as sns
-import umap.umap_ as umap
 #
 from torch.nn import L1Loss
 #
@@ -20,16 +19,13 @@ from skimage.measure import label, regionprops
 from scipy.ndimage.filters import gaussian_filter
 
 from PIL import Image
-import cv2
 #
 import lpips
-import pytorch_fid.fid_score as fid
 #
 from dl_utils import *
 from optim.metrics import *
 from optim.losses.image_losses import NCC
 from core.DownstreamEvaluator import DownstreamEvaluator
-from dl_utils.visualization import plot_warped_grid
 import subprocess
 import os
 import copy
@@ -47,7 +43,7 @@ class PDownstreamEvaluator(DownstreamEvaluator):
         super(PDownstreamEvaluator, self).__init__(name, model, device, test_data_dict, checkpoint_path)
 
         self.criterion_rec = L1Loss().to(self.device)
-        self.auprc = AUPRC()
+       # self.auprc = AUPRC()
         self.compute_scores = True
         self.vgg_encoder = VGGEncoder().to(self.device)
         self.l_pips_sq = lpips.LPIPS(pretrained=True, net='squeeze', use_dropout=True, eval_mode=True, spatial=True, lpips=True).to(self.device)

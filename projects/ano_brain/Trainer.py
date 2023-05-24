@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import copy
 from pytorch_msssim import ssim, ms_ssim, SSIM, MS_SSIM
 
+from optim.losses import PerceptualLoss
 
 class PTrainer(Trainer):
     def __init__(self, training_params, model, data, device, log_wandb=True):
@@ -31,6 +32,7 @@ class PTrainer(Trainer):
         epoch_losses = []
         epoch_losses_pl = []
         self.early_stop = False
+        self.criterion_PL = PerceptualLoss(device=self.device)
 
         for epoch in range(self.training_params['nr_epochs']):
             if start_epoch > epoch:
@@ -93,7 +95,7 @@ class PTrainer(Trainer):
                 axarr[i].axis('off')
                 v_max = v_maxs[i]
                 c_map = 'gray' if v_max == 1 else 'inferno'
-                axarr[i].imshow(elements[i].transpose(1, 2, 0), vmin=0, vmax=v_max, cmap=c_map)
+                axarr[i].imshow(np.squeeze(elements[i].transpose(1, 2, 0)), vmin=0, vmax=v_max, cmap=c_map)
 
             wandb.log({'Train/Example_': [
                 wandb.Image(diffp, caption="Iteration_" + str(epoch))]})
@@ -151,7 +153,7 @@ class PTrainer(Trainer):
             axarr[i].axis('off')
             v_max = v_maxs[i]
             c_map = 'gray' if v_max == 1 else 'inferno'
-            axarr[i].imshow(elements[i].transpose(1, 2, 0), vmin=0, vmax=v_max, cmap=c_map)
+            axarr[i].imshow(np.squeeze(elements[i].transpose(1, 2, 0)), vmin=0, vmax=v_max, cmap=c_map)
 
         wandb.log({task + '/Example_': [
             wandb.Image(diffp, caption="Iteration_" + str(epoch))]})
