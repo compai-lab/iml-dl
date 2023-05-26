@@ -1,14 +1,14 @@
 name: DAE
 target_size: &target_size !!python/tuple [128, 128]
 dbatch_size: &dbatch_size 1
-checkpoint_path: &checkpoint_path ./weights/phanes_miccai/sota/
+checkpoint_path: &checkpoint_path ./weights/dae/sota/
 #
 # Experiment
 #
 experiment:
-  name: 23_MICCAI_PHANES [Synthetic]
-  task: test
-  weights: './weights/fast_mri/sota/2022_12_06_12_40_20_922068/best_model.pt'
+  name: DAE_2D
+  task: train
+  weights: #'./weights/fast_mri/sota/2022_12_06_12_40_20_922068/best_model.pt'
 #  weights:  './weights/phanes_miccai/sota/2023_01_31_16_07_58_330909/best_model.pt'
 #
 device: gpu
@@ -34,13 +34,13 @@ model:
 # Trainer
 #
 trainer:
-  module_name: projects.23_phanes_miccai.Trainer
+  module_name: projects.ano_brain.Trainer
   class_name: PTrainer
   params:
     input_size: *target_size
     checkpoint_path: *checkpoint_path
-    nr_epochs: 3000
-    patience: 500
+    nr_epochs: 1000
+    patience: 100
     # Transformer
     transformer:
       module_name: transforms.gaussian_noise
@@ -64,60 +64,40 @@ trainer:
     params:
       args:
         dataset_module:
-          module_name: data.loaders.ixi_loader
-          class_name: IXILoader
+          module_name: data.loaders.fastmri_loader
+          class_name: FastLoader
         data_dir:
           train:
-          - './data/CAPS_IXI/splits/t1_mix_train.csv'
+          - './data/ADNI/adni_female_healthy_2D.csv'
+         #  - './data/CAPS_IXI/ixi_normal_train.csv'
           val:
-          - './data/CAPS_IXI/splits/ixi-t1_val_png.csv'
+          - './data/ADNI/adni_female_AD_2D.csv'
+         # - './data/fastMRI/normal_val.csv'
           test:
-          - './data/CAPS_IXI/splits/ixi-t1_test_png.csv'
+          - './data/ADNI/adni_female_AD_2D.csv'
+        #  - './data/fastMRI/normal_test.csv'
         target_size: *target_size
         batch_size: 8
 # Downstream tasks
 downstream_tasks:
-#  detection:
-#    module_name: projects.23_phanes_miccai.DownstreamEvaluator
-#    class_name: PDownstreamEvaluator
-#    checkpoint_path: *checkpoint_path
-#    global_detection: True
-#    data_loader:
-#      module_name: core.DataLoader
-#      class_name: DefaultDataLoader
-#      params:
-#        args:
-#          target_size: *target_size
-#          batch_size: *dbatch_size
-#          dataset_module:
-#            module_name: data.loaders.ixi_loader
-#            class_name: IXILoader
-#      datasets:
-#        Atlas:
-#          data_dir:
-#            test:
-#              - './data/ATLAS/splits/atlas_train_png.csv'
-#          label_dir:
-#            test:
-#              - './data/ATLAS/splits/atlas_train_mask_png.csv'
-#
-  pseudo_healthy:
-    module_name: projects.23_phanes_miccai.DownstreamEvaluator
-    class_name: PDownstreamEvaluator
-    checkpoint_path: *checkpoint_path
-    global_detection: False
-    data_loader:
-      module_name: core.DataLoader
-      class_name: DefaultDataLoader
-      params:
-        args:
-          target_size: *target_size
-          batch_size: *dbatch_size
-          dataset_module:
-            module_name: data.loaders.fastmri_loader
-            class_name: FastLoader
-      datasets:
-        Normal_brain:
-          data_dir:
-            test:
-              - './data/fastMRI/splits/normal_test.csv'
+downstream_tasks:
+    detection:
+      module_name: projects.ano_brain.DownstreamEvaluator
+      class_name: PDownstreamEvaluator
+      checkpoint_path: *checkpoint_path
+      global_detection: True
+      data_loader:
+        module_name: core.DataLoader
+        class_name: DefaultDataLoader
+        params:
+          args:
+            target_size: *target_size
+            batch_size: *dbatch_size
+            dataset_module:
+              module_name: data.loaders.fastmri_loader
+              class_name: FastLoader
+        datasets:
+          global_pathology:
+            data_dir:
+              test:
+                - './data/ATLAS/atlas_test_png.csv'

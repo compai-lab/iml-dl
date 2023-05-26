@@ -282,3 +282,12 @@ class Zoom(Transform):
         if len(img.shape) == 3:
             img = img[None, ...]
         return F.interpolate(img,  size=self.input_size, mode=self.mode)[0]
+
+from monai.transforms import RandAdjustContrast,RandRotate,RandAffine    
+class RandomAffine:
+    def __init__(self,prob):
+        self.prob=prob
+        # self.methods = [0, 1, 2]
+    def __call__(self, img):
+
+        return RandAffine(prob=self.prob,rotate_range=[0,20],translate_range=[0,1])

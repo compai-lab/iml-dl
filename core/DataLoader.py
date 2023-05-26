@@ -8,6 +8,7 @@ Default class for data loaders from:
 from transforms.preprocessing import AddChannelIfNeeded, AssertChannelFirst, ReadImage, To01
 import torchvision.transforms as transforms
 from torch.utils.data import Dataset, DataLoader
+from transforms.preprocessing import *
 import pytorch_lightning as pl
 from dl_utils.data_utils import *
 from dl_utils.config_utils import *
@@ -51,22 +52,50 @@ class DefaultDataset(Dataset):
                 self.label_files = [glob.glob(label_dir_i + file_type) for label_dir_i in label_dir]
             self.seg_t = self.get_label_transform_test() if test else self.get_label_transform()
 
+
     def get_image_transform(self):
-        """
-        Add specific annotations for training, e.g., augmentation
-        """
-        default_t = transforms.Compose([ReadImage(), To01(), AddChannelIfNeeded(),
-                                        AssertChannelFirst(), transforms.Resize(self.target_size)])
+        default_t = transforms.Compose([ReadImage(), To01(),
+                                        
+                                        # First make strided conv run
+
+                                        # intensity augmentations: gamma shifts, intemnsity jitter
+                                        # play with perceptual loss, interpret -> range 0.1- 
+                                        # lpips try this perceptual, visualization-> downstream evaluator
+                                        # set betra=0(make perfect results in terms of registration) first,play with NCC window, deformation map visualization, interpretation of NCC (window)
+                                        # play with beta and look at deformation maps and reconstruction quality
+                                        # 
+
+                                       # transforms.RandomRotation(degrees=(0, 20)),
+                                       # transforms.RandomHorizontalFlip(p=0.2),
+                                        transforms.RandomAffine(degrees=(0, 10), translate=(0.1, 0.8), scale=(0.5, 0.7)),
+                                        #transforms.RandomAdjustSharpness(sharpness_factor=1),
+                                       # Norm98(), #Slice(),
+                                        Pad((18, 18)),
+                                        AddChannelIfNeeded(),
+                                        AssertChannelFirst(), self.RES,
+                                        #AdjustIntensity(),
+                                       # transforms.ToPILImage(), transforms.RandomAffine(10, (0.1, 0.1), (0.9, 1.1)), transforms.RandomHorizontalFlip(0.5),transforms.ToTensor()
+                                        ])
         return default_t
 
     def get_image_transform_test(self):
-        default_t = transforms.Compose([ReadImage(), To01(), AddChannelIfNeeded(),
-                                        AssertChannelFirst(), transforms.Resize(self.target_size)])
+        default_t = transforms.Compose([ReadImage(), To01(),
+                                       # Norm98(), #Slice(),
+                                        Pad((18, 18)),
+                                        AddChannelIfNeeded(),
+                                        AssertChannelFirst(), self.RES,
+                                        #transforms.ToPILImage(), transforms.RandomAffine(20, (0.1, 0.1), (0.9, 1.1)),
+                                        #transforms.RandomVerticalFlip(0.4),
+                                        #transforms.ToTensor()
+                                        ])
         return default_t
 
     def get_label_transform(self):
-        default_t = transforms.Compose([ReadImage(), To01(), AddChannelIfNeeded(),
-                                        AssertChannelFirst(), transforms.Resize(self.target_size)])
+        default_t = transforms.Compose([ReadImage(), To01(),
+                                     #   Norm98(), #Slice(),
+                                        Pad((18, 18)),
+                                        AddChannelIfNeeded(),
+                                        AssertChannelFirst(), self.RES])
         return default_t
 
     def get_label_transform_test(self):

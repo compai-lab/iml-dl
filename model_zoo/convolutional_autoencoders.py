@@ -103,8 +103,43 @@ class Decoder(nn.Sequential):
             self.add_module(name_prefix + "_decode_final",
                             nn.Conv2d(in_channels=layer_channels, out_channels=out_ch, kernel_size=(1, 1),
                                       ))
-            self.add_module(name_prefix + "_act_final", nn.Sigmoid())
+            #self.add_module(name_prefix + "_act_final", nn.Sigmoid())
 
+class Encoder3D(nn.Sequential):
+    def __init__(self, in_channels: int, channels: Sequence[int], strides: Sequence[int],
+                 kernel_size=5, norm='batch', act='leakyrelu', deconv_mode='upsample', name_prefix='shape'):
+        """
+        :param in_channels:
+        :param channels:
+        :param strides:
+        :param kernel_size:
+        :param norm:
+        :param act:
+        :param name_prefix:
+        :param bottleneck_size:
+        """
+        super(Encoder, self).__init__()
+        padding = (kernel_size - 1) // 2
+        layer_channels = in_channels
+        encoder_channels = copy(channels)
+        encoder_channels.append(channels[-1])
+        for i, (c, s) in enumerate(zip(encoder_channels, strides)):
+            stride = 1 if deconv_mode == 'upsample' else s
+            self.add_module(name_prefix + "_encode_%i" % i,
+                            nn.Conv2d(in_channels=layer_channels, out_channels=c, kernel_size=kernel_size,
+                                      stride=stride, padding=padding))#, dilation=(1,1), groups=1))
+            if norm == 'batch':
+                self.add_module(name_prefix + "_batch_%i" % i, nn.BatchNorm2d(c))
+            if act == 'relu':
+                self.add_module(name_prefix + "_act_%i" % i, nn.ReLU(True))
+            elif act == 'leakyrelu':
+                self.add_module(name_prefix + "_act_%i" % i, nn.LeakyReLU(True))
+            else:
+                self.add_module(name_prefix + "_act_%i" % i, CustomSwish())
+            if deconv_mode == 'upsample':
+                self.add_module(name_prefix + "_max_pool%i" % i,
+                                torch.nn.MaxPool2d(kernel_size=kernel_size, stride=s, padding=padding, return_indices=True))
+            layer_channels = c
 
 class ConvAutoEncoder(nn.Module):
 

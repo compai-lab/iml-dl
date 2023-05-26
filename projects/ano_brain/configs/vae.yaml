@@ -1,14 +1,14 @@
 name: VAE
 target_size: &target_size !!python/tuple [128, 128]
 dbatch_size: &dbatch_size 1
-checkpoint_path: &checkpoint_path ./weights/phanes_miccai/sota/
+checkpoint_path: &checkpoint_path ./weights/vae_trial/sota/
 #
 # Experiment
 #
 experiment:
   name: 23_MICCAI_PHANES [Synthetic]
-  task: test
-  weights:  './weights/fast_mri/sota/2022_12_05_14_24_26_588331/best_model.pt'
+  task: train
+  weights: # './weights/fast_mri/sota/2022_12_05_14_24_26_588331/best_model.pt'
 #  weights:  './weights/phanes_miccai/sota/2023_01_31_16_04_55_377770/best_model.pt'
 
 #
@@ -41,7 +41,7 @@ model:
 # Trainer
 #
 trainer:
-  module_name: projects.23_phanes_miccai.Trainer
+  module_name: projects.ano_brain.Trainer
   class_name: PTrainer
   params:
     input_size: *target_size
@@ -67,15 +67,21 @@ trainer:
     params:
       args:
         dataset_module:
-          module_name: data.loaders.ixi_loader
-          class_name: IXILoader
+          module_name: data.loaders.fastmri_loader
+          class_name: FastLoader
         data_dir:
           train:
-          - './data/CAPS_IXI/splits/ixi-t1_train_png.csv'
+#          - './data/CAPS_IXI/splits/ixi-t1_train_2D.csv'
+#          - './data/ATLAS_2/splits/atlas_train_dummy.csv'
+          - './data/CAPS_IXI/ixi_normal_train.csv'
           val:
-          - './data/CAPS_IXI/splits/ixi-t1_val_png.csv'
+#          - './data/ATLAS_2/splits/atlas_test.csv'
+#          - './data/CAPS_IXI/splits/ixi-t1_val_2D.csv'
+          - './data/fastMRI/normal_val.csv'
           test:
-          - './data/CAPS_IXI/splits/ixi-t1_test_png.csv'
+#          - './data/CAPS_IXI/splits/ixi-t1_val_2D.csv'
+#            - './data/ATLAS_2/splits/atlas_test_dummy.csv'
+          - './data/fastMRI/normal_test.csv'
         target_size: *target_size
         batch_size: 8
 # Downstream tasks
@@ -105,7 +111,7 @@ downstream_tasks:
 #              - './data/ATLAS/splits/atlas_train_mask_png.csv'
 #
   pseudo_healthy:
-    module_name: projects.23_phanes_miccai.DownstreamEvaluator
+    module_name: projects.ano_brain.DownstreamEvaluator
     class_name: PDownstreamEvaluator
     checkpoint_path: *checkpoint_path
     global_detection: False
@@ -123,4 +129,4 @@ downstream_tasks:
         Normal_brain:
           data_dir:
             test:
-              - './data/fastMRI/splits/normal_test.csv'
+              - './data/fastMRI/normal_test.csv'
