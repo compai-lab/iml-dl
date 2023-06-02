@@ -1,4 +1,4 @@
-name: MorphAEus_alfa_0.5_nodeformer_no_ncc_swish_transpose
+name: MorphAEus_alfa_0.2_beta_0.0_window_9
 target_size: &target_size !!python/tuple [128, 128]
 dbatch_size: &dbatch_size 1
 checkpoint_path: &checkpoint_path ./weights/fast_mri/sota/
@@ -6,7 +6,7 @@ checkpoint_path: &checkpoint_path ./weights/fast_mri/sota/
 # Experiment
 #
 experiment:
-  name: Morphaeus_2D_IXI_FastMRI_NO_DEFORMER
+  name: Morphaeus_2D_IXI_FastMRI_Deformer
   task: train
   weights: #'weights/fast_mri/sota/2023_05_22_19_41_58_326024/latest_model.pt'
 #
@@ -53,19 +53,21 @@ model:
 # Trainer
 #
 trainer:
-  module_name: projects.ano_brain.MorphTrainer_no_deform_no_ncc
+  module_name: projects.ano_brain.MorphTrainer
   class_name: PTrainer
   params:
     input_size: *target_size
     checkpoint_path: *checkpoint_path
-    nr_epochs: 750
+    nr_epochs: 600
     max_iter: 1500
     loss:
       module_name: optim.losses.ln_losses
       class_name: L2
       params:
     patience: 100
-    alfa: 0.5
+    alfa: 0.2
+    beta: 0
+    ncc_window_size: 9
     # Optimizer
     # Optimizer
     optimizer_params:

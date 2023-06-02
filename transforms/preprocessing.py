@@ -266,7 +266,7 @@ class Resize3D(Transform):
         # print(img.shape)
         # self.target_size = int(img.shape // 2)
         self.resize = torchio.transforms.Resize(self.target_size)
-        return self.resize(img)
+        return self.resize(np.squeeze(img)[np.newaxis,:,:,:])
 
 
 class Zoom(Transform):

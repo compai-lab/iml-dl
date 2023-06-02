@@ -82,7 +82,10 @@ class Trainer:
         self.log_wandb = log_wandb
 
         wandb.watch(self.model)
-        input_size = (1, 1, self.training_params['input_size'][0],  self.training_params['input_size'][1])
+        if len(self.training_params['input_size'])==3:
+            input_size = (1, 1, self.training_params['input_size'][0],  self.training_params['input_size'][1], self.training_params['input_size'][2])
+        else:
+            input_size = (1, 1, self.training_params['input_size'][0],  self.training_params['input_size'][1])
         print(f'Input size of summery is: {input_size}')
         summary(model, input_size)
 

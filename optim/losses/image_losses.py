@@ -31,7 +31,7 @@ class NCC:
         assert ndims in [1, 2, 3], "volumes should be 1 to 3 dimensions. found: %d" % ndims
 
         # set window size
-        win = [9] * ndims if self.win is None else self.win
+        win = [9] * ndims if self.win is None else [self.win]* ndims
 
         # compute filters
         # print(f'Num channels: {num_channels}')

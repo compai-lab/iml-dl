@@ -69,6 +69,3 @@ class MorphAEus(nn.Module):
         else:
             return y_source, {'deformation': pos_flow, 'x_prior': dec_x, 'x_reversed': y_source, 'embeddings': encode_history}
         
-from torchsummary import summary
-nnn=MorphAEus((1,128,128),128, [32,32], 1 , [2,2])
-print(nnn)

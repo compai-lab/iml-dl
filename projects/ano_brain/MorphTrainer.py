@@ -7,20 +7,22 @@ from optim.losses.NCC2 import *
 import matplotlib.pyplot as plt
 import copy
 from optim.losses import PerceptualLoss
+from dl_utils.visualization import plot_warped_grid
 import matplotlib
 matplotlib.use("Agg")
 
 class PTrainer(Trainer):
     def __init__(self, training_params, model, data, device, log_wandb=True):
         super(PTrainer, self).__init__(training_params, model, data, device, log_wandb)
-        self.ncc_loss = NCC2()
+       
         self.deform_R = DisplacementRegularizer2D('gradient-l2')
         self.beta_max = training_params['beta'] if 'beta' in training_params.keys() else 3
         self.delta = training_params['delta'] if 'delta' in training_params.keys() else 1
         self.max_iter = training_params['max_iter'] if 'max_iter' in training_params.keys() else 500
-        self.beta = 1e-2
         self.criterion_PL = PerceptualLoss(device=device)
-
+        self.ncc_window_size=training_params['ncc_window_size'] if 'ncc_window_size' in training_params.keys() else 9
+       # self.ncc_loss = NCC(win=self.ncc_window_size)
+        self.ncc_loss = NCC2()
     def train(self, model_state=None, opt_state=None, start_epoch=0):
         """
         Train local client
@@ -113,17 +115,20 @@ class PTrainer(Trainer):
             rec = reconstruction[:,:,:,:].detach().cpu()[0].numpy()
             # rec[0, 0], rec[0, 1] = 0, 1
             img = transformed_images[:,:,:,:].detach().cpu()[0].numpy()
+            deff = deformation[:,:,:,:].detach().cpu()[0].numpy()
             # img[0, 0], img[0, 1] = 0, 1
             # grid_image = np.hstack([img, global_prior, rec])
-            elements = [img, global_prior, rec, np.abs(global_prior-img), np.abs(rec-img)]
+            elements = [img, global_prior, rec, np.abs(global_prior-img), np.abs(rec-img),deff]
             diffp, axarr = plt.subplots(1, len(elements), gridspec_kw={'wspace': 0, 'hspace': 0})
             diffp.set_size_inches(len(elements) * 4, 4)
             for i in range(len(axarr)):
                 axarr[i].axis('off')
-                v_max = 1 if i < np.floor((len(elements) / 2)) + 1 else 0.5
-                c_map = 'gray' if i < np.floor((len(elements) / 2)) + 1 else 'inferno'
-                axarr[i].imshow(np.squeeze(elements[i].transpose(1, 2, 0)), vmin=0, vmax=v_max, cmap=c_map)
-            
+                if i!=len(axarr)-1:
+                    v_max = 1 if i < np.floor(((len(elements)-1) / 2)) + 1 else 0.5
+                    c_map = 'gray' if i < np.floor(((len(elements)-1) / 2)) + 1 else 'inferno'               
+                    axarr[i].imshow(np.squeeze(elements[i].transpose(1, 2, 0)), vmin=0, vmax=v_max, cmap=c_map)
+                else:
+                    plot_warped_grid(ax=axarr[i],disp=deff)
             wandb.log({'Train' + '/Example_': [
                     wandb.Image(diffp, caption="Iteration_" + str(epoch))]})    
 

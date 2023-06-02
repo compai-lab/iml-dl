@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import copy
 from optim.losses import MedicalNetPerceptualSimilarity
 
-
+from dl_utils.visualization import plot_warped_grid
 class PTrainer(Trainer):
     def __init__(self, training_params, model, data, device, log_wandb=True):
         super(PTrainer, self).__init__(training_params, model, data, device, log_wandb)
@@ -70,9 +70,9 @@ class PTrainer(Trainer):
                 reg_deform = self.deform_R(deformation)
                 loss_deform = self.ncc_loss(images, reconstruction) if torch.equal(reconstruction, reversed_img) \
                     else (self.ncc_loss(images, reconstruction) + self.ncc_loss(global_prior, reversed_img))/2
-                loss = loss_rec #+ self.alfa * loss_pl
-                if epoch > 10:
-                    loss = loss_rec + """self.alfa * loss_pl"""+ self.delta * loss_deform + self.beta * reg_deform
+                loss = loss_rec + self.alfa * loss_pl
+                if epoch > 50:
+                    loss = loss_rec + self.alfa * loss_pl+ self.delta * loss_deform + self.beta * reg_deform
 
                 self.optimizer.zero_grad()
                 # Backward Pass
@@ -110,26 +110,36 @@ class PTrainer(Trainer):
             img = transformed_images[0].cpu().detach().numpy()
             # print(np.min(img), np.max(img))
             rec_ = reconstruction[0].cpu().detach().numpy()
+            gl_prior = global_prior[0].cpu().detach().numpy()
+            deff = deformation[:,:,:,:].detach().cpu()[0].numpy()
             # print(f'rec: {np.min(rec)}, {np.max(rec)}')
-            elements = [img, rec_, np.abs(rec_ - img)]
-            v_maxs = [1, 1, 0.5]
-            diffp, axarr = plt.subplots(3, len(elements), gridspec_kw={'wspace': 0, 'hspace': 0})
+            elements = [img,gl_prior, rec_, np.abs(rec_ - img),deff]
+            v_maxs = [1, 1, 1,0.5,0.5]
+            diffp, axarr = plt.subplots(4, len(elements), gridspec_kw={'wspace': 0, 'hspace': 0})
             diffp.set_size_inches(len(elements) * 4, 3 * 4)
             for i in range(len(axarr)):
                 for axis in range(3):
-                    axarr[axis, i].axis('off')
-                    v_max = v_maxs[i]
-                    c_map = 'gray' if v_max == 1 else 'plasma'
-                    # print(elements[i].shape)
-                    if axis == 0:
-                        el = np.squeeze(elements[i])[int(w / 2), :, :]
-                    elif axis == 1:
-                        el = np.squeeze(elements[i])[:, int(w / 2), :]
+                    if i!=len(axarr)-1:
+                        axarr[axis, i].axis('off')
+                        v_max = v_maxs[i]
+                        c_map = 'gray' if v_max == 1 else 'plasma'
+                        # print(elements[i].shape)
+                        if axis == 0:
+                            el = np.squeeze(elements[i])[int(w / 2), :, :]
+                        elif axis == 1:
+                            el = np.squeeze(elements[i])[:, int(w / 2), :]
+                        else:
+                            el = np.squeeze(elements[i])[:, :, int(w / 2)]
+
+                        axarr[axis, i].imshow(np.squeeze(el).T, vmin=0, vmax=v_max, cmap=c_map, origin='lower')
                     else:
-                        el = np.squeeze(elements[i])[:, :, int(w / 2)]
-
-                    axarr[axis, i].imshow(np.squeeze(el).T, vmin=0, vmax=v_max, cmap=c_map, origin='lower')
-
+                       
+                        if axis == 0:
+                            plot_warped_grid(ax=axarr[axis, i],disp=np.squeeze(elements[i])[:,int(w / 2), :, :])
+                        elif axis == 1:
+                            plot_warped_grid(ax=axarr[axis, i],disp=np.squeeze(elements[i])[:,:, int(w / 2), :])
+                        else:
+                            plot_warped_grid(ax=axarr[axis, i],disp=np.squeeze(elements[i])[:,:, :, int(w / 2)])
             wandb.log({'Train/Example_': [
                 wandb.Image(diffp, caption="Iteration_" + str(epoch))]})
 
