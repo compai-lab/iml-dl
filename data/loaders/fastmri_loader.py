@@ -21,7 +21,7 @@ class Flip:
 class FastLoader(DefaultDataset):
     def __init__(self, data_dir, file_type='', label_dir=None, mask_dir=None, target_size=(256, 256), test=False):
         self.target_size = target_size
-        self.RES = transforms.Resize(self.target_size)
+        #self.RES = transforms.Resize(self.target_size)
         self.mask_dir = mask_dir
         if mask_dir is not None:
             if 'csv' in mask_dir[0]:
@@ -31,22 +31,22 @@ class FastLoader(DefaultDataset):
         super(FastLoader, self).__init__(data_dir, file_type, label_dir, target_size, test)
 
     def get_image_transform(self):
-        default_t = transforms.Compose([ReadImage(), To01(),
+        default_t = transforms.Compose([ReadImage(), Norm98(),
                                        # Norm98(), #Slice(),
-                                        Pad((18, 18)),
+                                       # Pad((18, 18)),
                                         AddChannelIfNeeded(),
-                                        AssertChannelFirst(), self.RES,
+                                        AssertChannelFirst()
                                         #AdjustIntensity(),
                                        # transforms.ToPILImage(), transforms.RandomAffine(10, (0.1, 0.1), (0.9, 1.1)), transforms.RandomHorizontalFlip(0.5),transforms.ToTensor()
                                         ])
         return default_t
 
     def get_image_transform_test(self):
-        default_t = transforms.Compose([ReadImage(), To01(),
+        default_t = transforms.Compose([ReadImage(), Norm98(),
                                        # Norm98(), #Slice(),
-                                        Pad((18, 18)),
+                                     #   Pad((18, 18)),
                                         AddChannelIfNeeded(),
-                                        AssertChannelFirst(), self.RES,
+                                        AssertChannelFirst()
                                         #transforms.ToPILImage(), transforms.RandomAffine(20, (0.1, 0.1), (0.9, 1.1)),
                                         #transforms.RandomVerticalFlip(0.4),
                                         #transforms.ToTensor()
@@ -54,11 +54,11 @@ class FastLoader(DefaultDataset):
         return default_t
 
     def get_label_transform(self):
-        default_t = transforms.Compose([ReadImage(), To01(),
+        default_t = transforms.Compose([ReadImage(), Norm98(),
                                      #   Norm98(), #Slice(),
                                         Pad((18, 18)),
                                         AddChannelIfNeeded(),
-                                        AssertChannelFirst(), self.RES])
+                                        AssertChannelFirst()])
         return default_t
 
     def get_label(self, idx):

@@ -61,14 +61,21 @@ def plot_warped_grid(ax, disp, bg_img=None, interval=3, title="$\mathcal{T}_\phi
         background = bg_img
     else:
         background = np.zeros(disp.shape[1:])
-
-    id_grid_H, id_grid_W = np.meshgrid(range(0, background.shape[0] - 1, interval),
-                                       range(0, background.shape[1] - 1, interval),
+    if len(disp.shape)==3:
+        id_grid_H, id_grid_W = np.meshgrid(range(0, background.shape[0] - 1, interval),
+                                           range(0, background.shape[1] - 1, interval),
                                        indexing='ij')
-
-    new_grid_H = id_grid_H + disp[0, id_grid_H, id_grid_W]
-    new_grid_W = id_grid_W + disp[1, id_grid_H, id_grid_W]
-
+        new_grid_H = id_grid_H + disp[0, id_grid_H, id_grid_W]
+        new_grid_W = id_grid_W + disp[1, id_grid_H, id_grid_W]
+    if len(disp.shape)==4:
+        id_grid_H, id_grid_W,id_grid_D = np.meshgrid(range(0, background.shape[0] - 1, interval),
+                                                     range(0, background.shape[1] - 1, interval),
+                                                     range(0, background.shape[2] - 1, interval),
+                                       indexing='ij')
+        
+        new_grid_H = id_grid_H + disp[0, id_grid_H, id_grid_W,id_grid_D]
+        new_grid_W = id_grid_W + disp[1, id_grid_H, id_grid_W,id_grid_D]
+        new_grid_D = id_grid_D + disp[2, id_grid_H, id_grid_W,id_grid_D]
     kwargs = {"linewidth": linewidth, "color": color}
     # matplotlib.plot() uses CV x-y indexing
     for i in range(new_grid_H.shape[0]):
@@ -76,7 +83,7 @@ def plot_warped_grid(ax, disp, bg_img=None, interval=3, title="$\mathcal{T}_\phi
     for i in range(new_grid_H.shape[1]):
         ax.plot(new_grid_W[:, i], new_grid_H[:, i], **kwargs)  # each draws a vertical line
 
-    ax.set_title(title, fontsize=fontsize)
+   # ax.set_title(title, fontsize=fontsize)
     ax.imshow(background, cmap='gray')
     # ax.axis('off')
     ax.grid(False)
@@ -84,7 +91,6 @@ def plot_warped_grid(ax, disp, bg_img=None, interval=3, title="$\mathcal{T}_\phi
     ax.set_yticks([])
     ax.set_frame_on(False)
     return ax
-
 
 def umap_plot(self, global_model):
     """

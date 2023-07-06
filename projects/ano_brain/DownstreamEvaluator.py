@@ -81,7 +81,7 @@ class PDownstreamEvaluator(DownstreamEvaluator):
         # self.curate_dataset(global_model)
         #
         # self.umap_plot(global_model)
-        self.pseudo_healthy(global_model)
+        self.global_detection(global_model)
 
     def compute_residual(self, x_rec, x):
         saliency = self.get_saliency(x_rec, x)
@@ -395,7 +395,9 @@ class PDownstreamEvaluator(DownstreamEvaluator):
                 x = data0.to(self.device)
                 x_rec, x_rec_dict = self.model(x)
                 saliency = None
-                x_res = np.abs(x_rec.cpu().detach().numpy() - x.cpu().detach().numpy())
+                x_res = np.abs(x_rec - x.detach().cpu().numpy())
+                x_rec=torch.from_numpy(x_rec)
+                x_res.to(self.device)
                 if 'embeddings' in x_rec_dict.keys():
                     #     # x_res = gaussian_filter(x_res, sigma=2)
                     #     saliency = self.get_saliency(x_rec_i.detach(), x_i.detach())

@@ -38,6 +38,10 @@ class ReadImage(Transform):
                 img_obj = nip.load(path)
                 img_np = np.array(img_obj.get_fdata(), dtype=np.float32)
                 # img_t = torch.Tensor(img_np.copy())
+
+                #for 2.5D network training
+                w, h,d= img_np.shape
+                img_np=np.concatenate((img_np[int(w/2),:,:][np.newaxis,:,:],img_np[:,int(h/2),:][np.newaxis,:,:],img_np[:,:,int(d/2)][np.newaxis,:,:]),axis=0)
                 img_t = torch.Tensor(img_np[:, :, :].copy()) # Transposed 3D MRI brains
                 # img_t = torch.Tensor(np.flipud(img_np[:, :, :].T).copy()) # Transposed 3D MRI brains
                 # img_t = torch.Tensor(np.flipud(img_np[:, :, 95].T).copy()) # Mid Axial slice of MRI brains
@@ -58,7 +62,56 @@ class ReadImage(Transform):
             return torch.tensor(img_data.copy())
         else:
             raise IOError
+class ReadImage2(Transform):
+    """
+    Transform to read image, see torchvision.io.image.read_image
+    """
 
+    backend = [TransformBackends.TORCH, TransformBackends.NUMPY]
+
+    def __call__(self, path: str) -> NdarrayOrTensor:
+        """
+        Apply the transform to `img`.
+        """
+        if '.npy' in path:
+            # return torch.tensor(np.flipud((np.load(path).astype(np.float32)).T).copy())  # Mid Axial slice of MRI brains
+            img = np.load(path).astype(np.float32)
+            img = (img * 255).astype(np.uint8)
+            return torch.tensor(img)
+        elif '.jpeg' in path or '.jpg' in path or '.png' in path:
+            try:
+             return read_image(path)
+            except TypeError :
+                print(path)
+                pass
+        elif '.nii.gz' in path:
+            import nibabel as nip
+            from nibabel.imageglobals import LoggingOutputSuppressor
+            with LoggingOutputSuppressor():
+                img_obj = nip.load(path)
+                img_np = np.array(img_obj.get_fdata(), dtype=np.float32)
+                # img_t = torch.Tensor(img_np.copy())
+
+                img_t = torch.Tensor(img_np[:, :, :].copy()) # Transposed 3D MRI brains
+                # img_t = torch.Tensor(np.flipud(img_np[:, :, :].T).copy()) # Transposed 3D MRI brains
+                # img_t = torch.Tensor(np.flipud(img_np[:, :, 95].T).copy()) # Mid Axial slice of MRI brains
+            return img_t
+        elif '.nii' in path:
+            import nibabel as nip
+            img = nip.load(path)
+            return torch.Tensor(np.array(img.get_fdata()))
+        elif '.dcm' in path:
+            from pydicom import dcmread
+            ds = dcmread(path)
+            return torch.Tensor(ds.pixel_array)
+        elif '.h5' in path:  ## !!! SPECIFIC TO FAST MRI, CHANGE FOR OTHER DATASETS
+            import h5py
+            f = h5py.File(path, 'r')
+            img_data = f['reconstruction_rss'][:] # Fast MRI Specific
+            img_data = img_data[:, ::-1, :][0]  # flipped up down
+            return torch.tensor(img_data.copy())
+        else:
+            raise IOError
 
 class Norm98:
     def __init__(self, max_val=255.0):
@@ -185,8 +238,8 @@ class AssertChannelFirst(Transform):
         if img.shape[0] == img.shape[1] and img.shape[0] != img.shape[2]:
             print(f'Permuted channels {(img.permute(2,0,1)).shape}')
             return img.permute(2, 0, 1)
-        elif img.shape[0] > 1:
-            return img[0: 1, :, :]
+       # elif img.shape[0] > 1:
+       #     return img[0: 1, :, :]
         else:
             return img
 
@@ -218,6 +271,7 @@ class Pad3D(Transform):
         self.type = type
 
     def __call__(self, img: NdarrayOrTensor) -> NdarrayOrTensor:
+        img = torch.from_numpy(img)
         img = torch.squeeze(img)
         max_dim = max(img.shape[0], img.shape[1])
         z = 0
@@ -235,7 +289,7 @@ class Pad3D(Transform):
         else:
             self.pid = (0, z, 0, y, 0, x) if len(img.shape) > 2 else (0, y, 0, x)
         pad_val = torch.min(img)
-        self.pid = (3,3,0,0,0,0)
+       # self.pid = (3,3,0,0,0,0)
         img_pad = F.pad(img, self.pid, 'constant', pad_val)
 
         return img_pad

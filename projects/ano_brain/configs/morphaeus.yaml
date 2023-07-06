@@ -81,18 +81,18 @@ trainer:
     params:
       args:
         dataset_module:
-          module_name: data.loaders.fastmri_loader
+          module_name: data.loaders.fastmri_loader_2D
           class_name: FastLoader
         data_dir:
           train:
          # - './data/ADNI/adni_female_healthy_2D.csv'
-           - './data/CAPS_IXI/ixi_normal_train.csv'
+           - './data/ADNI/cn_siem_3T_ww_train_registered.csv'
           val:
          # - './data/ADNI/adni_female_AD_2D.csv'
-          - './data/fastMRI/normal_val.csv'
+          - './data/ADNI/cn_siem_3T_ww_val_registered.csv'
           test:
          # - './data/ADNI/adni_female_AD_2D.csv'
-          - './data/fastMRI/normal_test.csv'
+          - './data/ADNI/cn_siem_3T_ww_test_registered.csv'
         target_size: *target_size
 #        batch_size: 128 # Orig
         batch_size: 8
@@ -111,13 +111,13 @@ downstream_tasks:
             target_size: *target_size
             batch_size: *dbatch_size
             dataset_module:
-              module_name: data.loaders.fastmri_loader
+              module_name: data.loaders.fastmri_loader_2D
               class_name: FastLoader
         datasets:
-          global_pathology:
+          global_detection:
             data_dir:
               test:
-                - './data/ATLAS/atlas_test_png.csv'
+                - './data/ADNI/AD_Siem_3T_WW.csv'
 #
 # downstream_tasks:
 #   detection:

@@ -1,5 +1,5 @@
-from model_zoo.ae_3D import Encoder, Decoder
-from model_zoo.deformer_3D import *
+from model_zoo.convolutional_autoencoders import Encoder, Decoder
+from model_zoo.deformer_25D import *
 
 
 class MorphAEus(nn.Module):
@@ -32,7 +32,7 @@ class MorphAEus(nn.Module):
 
         self.decoder = Decoder(in_channels=channels[-1], channels=channels, out_ch=out_ch,
                               strides=strides, kernel_size=kernel_size, norm=norm, act=act, deconv_mode=deconv_mode,
-                              bottleneck=bottleneck, skip=skip, add_final=True, name_prefix='conv_')
+                              act_final=act_final, bottleneck=bottleneck, skip=skip, add_final=True, name_prefix='conv_')
 
         self.nr_ref_channels = nr_ref_channels
         self.nr_channels = len(channels)
@@ -49,15 +49,15 @@ class MorphAEus(nn.Module):
                 enc_x = enc_layer(x)
             else:
                 enc_x = enc_layer(enc_x)
-            if isinstance(enc_layer, nn.Conv3d):
-                if enc_x.shape[-1] != 16:
+            if isinstance(enc_layer, nn.Conv2d):
+                if enc_x.shape[-1] != 8:
                     encode_history.insert(0, enc_x)
         for i_d, dec_layer in enumerate(self.decoder):
             if i_d == 0:
                 dec_x = dec_layer(enc_x)
             else:
                 dec_x = dec_layer(dec_x)
-            if isinstance(dec_layer, nn.Conv3d) or isinstance(dec_layer, nn.ConvTranspose3d):
+            if isinstance(dec_layer, nn.Conv2d) or isinstance(dec_layer, nn.ConvTranspose2d):
                 if len(decode_history) < len(encode_history) and \
                         encode_history[len(decode_history)].shape[-1] == dec_x.shape[-1]:
                     decode_history.append(dec_x)
@@ -66,7 +66,5 @@ class MorphAEus(nn.Module):
         # return non-integrated flow field if training
         if not registration:
             return y_source, {'deformation': preint_flow, 'x_prior': dec_x, 'x_reversed': y_target, 'embeddings': encode_history}
-           # return  {'x_prior': dec_x, 'embeddings': encode_history}
         else:
             return y_source, {'deformation': pos_flow, 'x_prior': dec_x, 'x_reversed': y_source, 'embeddings': encode_history}
-          #  return  {'x_prior': dec_x, 'embeddings': encode_history}

@@ -1,14 +1,14 @@
-name: MorphAEus_3D
-target_size: &target_size !!python/tuple [128, 128, 128]
+name: MorphAEus_alfa_0.2_beta_0.0_window_9
+target_size: &target_size !!python/tuple [128, 128]
 dbatch_size: &dbatch_size 1
 checkpoint_path: &checkpoint_path ./weights/fast_mri/sota/
 #
 # Experiment
 #
 experiment:
-  name: Morphaeus_3D_trial
+  name: Morphaeus_25D_Trial
   task: train
-  weights: #'./weights/fast_mri/sota/2022_11_28_14_46_59_430187/best_model.pt'
+  weights: #'weights/fast_mri/sota/2023_05_22_19_41_58_326024/latest_model.pt'
 #
 device: gpu
 configurator:
@@ -19,53 +19,54 @@ configurator:
 # Model
 #
 model:
-  module_name: model_zoo.morphaeus_3D
+  module_name: model_zoo.morphaeus_25D
   class_name: MorphAEus
   params:
     inshape: *target_size
     bidir: True
-    in_channels: 1
+    in_channels: 3
     nr_ref_channels: 3
     channels:
-#      - 128
-      - 256
-      - 512
-      - 1024
+      - 16
+      - 32
+      - 64
+      - 128
 #      - 256
     strides:
       - 2
       - 2
       - 2
+      - 2
 #      - 2
-#      - 2
-    out_ch: 1
+    out_ch: 3
     kernel_size: 3
-    norm: nos
-    act: relu
+    norm: batch
+    act: swish
     deconv_mode: stride
 #
 # Trainer
 #
 trainer:
-  module_name: projects.ano_brain.MorphTrainer_3D
+  module_name: projects.ano_brain.MorphTrainer_25D
   class_name: PTrainer
   params:
     input_size: *target_size
     checkpoint_path: *checkpoint_path
-    nr_epochs: 150
+    nr_epochs: 1000
     max_iter: 1500
     loss:
       module_name: optim.losses.ln_losses
       class_name: L2
       params:
-    patience: 200
-    alfa: 0.4
-    beta: 0.1
+    patience: 100
+    alfa: 0.6
+    beta: 0.0001
+    ncc_window_size: 9
     # Optimizer
     # Optimizer
     optimizer_params:
 #      lr: 1.0e-4 # Orig
-      lr: 2.0e-4
+      lr: 4.0e-3
   # Data Loader
   data_loader:
 # IXI-T1
@@ -74,24 +75,21 @@ trainer:
     params:
       args:
         dataset_module:
-          module_name: data.brain3D_loader
-          class_name: Brain3DLoader
+          module_name: data.loaders.fastmri_loader
+          class_name: FastLoader
         data_dir:
           train:
-#          - './data/CAPS_IXI/splits/ixi-t1_train_2D.csv'
-#          - './data/ATLAS_2/splits/atlas_train_dummy.csv'
-          - './data/ADNI/cn_siem_3T_ww_train_registered.csv'
+         # - './data/ADNI/adni_female_healthy_2D.csv'
+           - './data/ADNI/cn_siem_3T_ww_train_registered.csv'
           val:
-#          - './data/ATLAS_2/splits/atlas_test.csv'
-#          - './data/CAPS_IXI/splits/ixi-t1_val_2D.csv'
+         # - './data/ADNI/adni_female_AD_2D.csv'
           - './data/ADNI/cn_siem_3T_ww_val_registered.csv'
           test:
-#          - './data/CAPS_IXI/splits/ixi-t1_val_2D.csv'
-#            - './data/ATLAS_2/splits/atlas_test_dummy.csv'
+         # - './data/ADNI/adni_female_AD_2D.csv'
           - './data/ADNI/cn_siem_3T_ww_test_registered.csv'
         target_size: *target_size
 #        batch_size: 128 # Orig
-        batch_size: 1
+        batch_size: 8
 # Downstream tasks
 downstream_tasks:
     detection:
@@ -107,13 +105,13 @@ downstream_tasks:
             target_size: *target_size
             batch_size: *dbatch_size
             dataset_module:
-              module_name: data.brain3D_loader
-              class_name: Brain3DLoader
+              module_name: data.loaders.fastmri_loader
+              class_name: FastLoader
         datasets:
-          global_pathology:
+          global_detection:
             data_dir:
               test:
-                - './data/3d_test_data/3d_test_data.csv'
+                - './data/ADNI/AD_Siem_3T_WW.csv'
 #
 # downstream_tasks:
 #   detection:
