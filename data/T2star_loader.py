@@ -8,6 +8,213 @@ import logging
 from typing import NamedTuple
 import nibabel as nib
 import glob
+from medutils.mri import ifft2c
+
+
+class RawT2starDataset(Dataset):
+    """Dataset for loading raw T2* data
+
+    Parameters
+    ----------
+    path : str
+        path to folder containing the relevant h5 files
+    only_bm_slices : bool
+        whether slices with percentage of brainmask voxels < bm_thr*100% should
+        be excluded or not
+    bm_thr : float
+        threshold for including / excluding slices based on percentage of
+        brainmask voxels
+    normalize : str
+        whether to normalize the data with maximum absolute value of image
+        ('abs_image')
+    select_echo : bool or int
+        whether to select a specific echo.
+    random mask : bool or list
+        whether to generate a random mask. If yes, then provide a list [R, N]
+        with acceleration rate R and number of central lines N.
+    overfit_one_sample : bool
+        whether only one sample should be loaded to test overfitting
+    """
+
+    def __init__(self, path, only_bm_slices=False, bm_thr=0.1,
+                 normalize="abs_image", select_echo=False,
+                 random_mask=[2, 10], overfit_one_sample=False):
+        super().__init__()
+
+        self.path = path
+        self.raw_samples = []
+        self.only_bm_slices = only_bm_slices
+        self.bm_thr = bm_thr
+        self.normalize = normalize
+        self.overfit_one_sample = overfit_one_sample
+        self.select_echo = select_echo
+        self.random_mask = random_mask
+
+        files = list(pathlib.Path(self.path).iterdir())
+        for filename in sorted(files):
+            slices_ind = self._get_slice_indices(filename)
+
+            new_samples = []
+            for slice_ind in slices_ind:
+                new_samples.append(T2StarDataSample(filename, slice_ind))
+
+            self.raw_samples += new_samples
+
+    def _get_slice_indices(self, filename):
+        with h5py.File(filename, "r") as hf:
+            if self.only_bm_slices and not self.overfit_one_sample:
+                brain_mask = hf["Brain_mask"]  # Brain mask shape: nr_slices, PE_lines, readout
+                bm_summed = np.sum(brain_mask, axis=(1, 2))
+                slices_ind = np.where(bm_summed / (brain_mask.shape[1] * brain_mask.shape[2]) > self.bm_thr)[0]
+            elif self.overfit_one_sample:
+                slices_ind = [self.overfit_one_sample]
+            else:
+                slices_ind = np.arange(hf['out']['Data'].shape[0])
+        return slices_ind
+
+    def __len__(self):
+        return len(self.raw_samples)
+
+    def __getitem__(self, idx):
+        filename, dataslice = self.raw_samples[idx]
+
+        with h5py.File(filename, "r") as f:
+            raw_data = f['out']['Data'][dataslice, :, 0, 0, :, 0]
+            tmp = f['out']['Parameter']['YRange'][:]
+            if len(np.unique(tmp[0])) > 1 or len(np.unique(tmp[1])) > 1:
+                print('Error: different y shifts for different echoes!')
+            y_shift = -int((tmp[0, 0] + tmp[1, 0]) / 2)
+            # y_shift to be used on images (see below)
+
+            # convert to proper complex data
+            if isinstance(raw_data, np.ndarray) and raw_data.dtype == [('real', '<f4'), ('imag', '<f4')]:
+                kspace = raw_data.view(np.complex64).astype(np.complex64)
+                sens_maps = f['out']['SENSE']['maps'][dataslice, :, 0, 0, :, 0].view(np.complex64).astype(np.complex64)
+            else:
+                print('Error in load_raw_mat: Unexpected data format: ',
+                      raw_data.dtype)
+
+        if self.normalize == "abs_image":
+            norm = np.amax(abs(ifft2c(kspace))) + 1e-9
+            kspace /= norm
+
+        # undersample with a random mask:
+        if self.random_mask is not False:
+            nc, ne, npe, nfe = kspace.shape
+            mask = np.random.choice([1, 0], (npe), p=[1 / self.random_mask[0], 1 - 1 / self.random_mask[0]])
+            mask[npe//2 - self.random_mask[1]//2:npe//2 + self.random_mask[1]//2] = 1
+        mask = mask.reshape(1, 1, npe, 1).repeat(nc, axis=0).repeat(ne, axis=1).repeat(nfe, axis=3)
+        kspace_zf = kspace*mask
+
+        # pad coil sensitivity maps to have same shape as images:
+        pad_width = ((0, 0), (0, 0), (0, 0), (int((kspace.shape[-1] - sens_maps.shape[-1])/2), int((kspace.shape[-1] - sens_maps.shape[-1])/2)))
+        sens_maps = np.pad(sens_maps, pad_width, mode='constant')
+
+        # zero-filled and fully sampled coil combined reconstructions:
+        coil_imgs_fs = ifft2c(kspace)
+        coil_imgs_fs = np.roll(coil_imgs_fs, shift=y_shift, axis=-2)
+        img_cc_fs = np.sum(coil_imgs_fs*np.conj(sens_maps), axis=1)
+        coil_imgs_zf = ifft2c(kspace_zf)
+        coil_imgs_zf = np.roll(coil_imgs_zf, shift=y_shift, axis=-2)
+        img_cc_zf = np.sum(coil_imgs_zf * np.conj(sens_maps), axis=1)
+
+        if self.select_echo is not False:
+            img_cc_fs = img_cc_fs[self.select_echo]
+            img_cc_zf = img_cc_zf[self.select_echo]
+
+        # return zero-filled image, fully sampled image, mask sensitivity maps etc
+        return torch.as_tensor(img_cc_zf), torch.as_tensor(img_cc_fs), \
+               torch.as_tensor(mask), torch.as_tensor(sens_maps), \
+               str(filename), dataslice
+
+
+class RawT2starLoader(pl.LightningDataModule):
+    def __init__(self, args):
+        super().__init__()
+        akeys = args.keys()
+        self.batch_size = args['batch_size'] if 'batch_size' in akeys else 8
+        self.only_brainmask_slices = args['only_brainmask_slices'] if 'only_brainmask_slices' in akeys else False
+        self.bm_thr = args['bm_thr'] if 'bm_thr' in akeys else 0.1
+        self.normalize = args['normalize'] if 'normalize' in akeys else "abs_image"
+        self.overfit_one_sample = args['overfit_one_sample'] if 'overfit_one_sample' in akeys else False
+        self.select_echo = args['select_echo'] if 'select_echo' in akeys else False
+        self.drop_last = False if self.overfit_one_sample else True
+        self.num_workers = args['num_workers'] if 'num_workers' in akeys else 1
+        self.data_dir = args['data_dir'] if 'data_dir' in akeys else None
+        assert type(self.data_dir) is dict, 'DefaultDataset::init():  data_dir variable should be a dictionary'
+
+
+    def train_dataloader(self):
+        """Loads a batch of training data consisting of kspace data, target
+        mask, filenames and slice indices of the associated h5 files.
+        """
+        trainset = RawT2starDataset(self.data_dir['train'],
+                                    only_bm_slices=self.only_brainmask_slices,
+                                    bm_thr=self.bm_thr,
+                                    normalize=self.normalize,
+                                    select_echo=self.select_echo,
+                                    overfit_one_sample=self.overfit_one_sample)
+        logging.info(f"Size of the train dataset: {trainset.__len__()}.")
+
+        dataloader = DataLoader(
+            trainset,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+            shuffle=True,
+            drop_last=self.drop_last,
+            pin_memory=True,
+        )
+        return dataloader
+
+    def val_dataloader(self):
+        """Loads a batch of validation data consisting of kspace data, target
+        mask, filenames and slice indices of the associated h5 files.
+        """
+        valset = RawT2starDataset(self.data_dir['val'],
+                                  only_bm_slices=self.only_brainmask_slices,
+                                  bm_thr=self.bm_thr,
+                                  normalize=self.normalize,
+                                  select_echo=self.select_echo,
+                                  overfit_one_sample=self.overfit_one_sample)
+        logging.info(f"Size of the validation dataset: {valset.__len__()}.")
+
+        dataloader = DataLoader(
+            valset,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+            shuffle=False,
+            drop_last=self.drop_last,
+            pin_memory=True,
+        )
+        return dataloader
+
+    def test_dataloader(self):
+        """Loads a batch of testing data consisting of kspace data, target
+        mask, filenames and slice indices of the associated h5 files. For the
+        test data loader 'drop_last' is enabled, which means that no data will
+        be loaded if the batch size is larger than the size of the test set.
+        """
+        testset = RawT2starDataset(self.data_dir['test'],
+                                   only_bm_slices=self.only_brainmask_slices,
+                                   bm_thr=self.bm_thr,
+                                   normalize=self.normalize,
+                                   select_echo=self.select_echo,
+                                   overfit_one_sample=self.overfit_one_sample)
+        logging.info(f"Size of the test dataset: {testset.__len__()}.")
+
+        if testset.__len__() < self.batch_size:
+            logging.info('The batch size ({}) is larger than the size of the test set({})! Since the dataloader has '
+                         'drop_last enabled, no data will be loaded!'.format(self.batch_size, testset.__len__()))
+
+        dataloader = DataLoader(
+            testset,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+            shuffle=False,
+            drop_last=False,
+            pin_memory=True,
+        )
+        return dataloader
 
 
 class T2starDataset(Dataset):
@@ -64,7 +271,7 @@ class T2starDataset(Dataset):
 
             new_samples = []
             for slice_ind in slices_ind:
-                new_samples.append(T2StarRawDataSample(filename, slice_ind))
+                new_samples.append(T2StarDataSample(filename, slice_ind))
 
             self.raw_samples += new_samples
 
@@ -177,24 +384,27 @@ class T2starLoader(pl.LightningDataModule):
         self.input_2d = args['input_2d'] if 'input_2d' in akeys else False
         self.drop_last = False if self.overfit_one_sample else True
         self.num_workers = args['num_workers'] if 'num_workers' in akeys else 2
-        if 'train_data_path' in akeys:
-            self.train_data_path = args['train_data_path']
-        else:
-            logging.info('No training data path specified.')
-        if 'val_data_path' in akeys:
-            self.val_data_path = args['val_data_path']
-        else:
-            logging.info('No validation data path specified.')
-        if 'test_data_path' in akeys:
-            self.test_data_path = args['test_data_path']
-        else:
-            logging.info('No test data path specified.')
+        # if 'train_data_path' in akeys:
+        #     self.train_data_path = args['train_data_path']
+        # else:
+        #     logging.info('No training data path specified.')
+        # if 'val_data_path' in akeys:
+        #     self.val_data_path = args['val_data_path']
+        # else:
+        #     logging.info('No validation data path specified.')
+        # if 'test_data_path' in akeys:
+        #     self.test_data_path = args['test_data_path']
+        # else:
+        #     logging.info('No test data path specified.')
+        self.data_dir = args['data_dir'] if 'data_dir' in akeys else None
+        assert type(self.data_dir) is dict, 'DefaultDataset::init():  data_dir variable should be a dictionary'
+
 
     def train_dataloader(self):
         """Loads a batch of training data consisting of kspace data, target
         mask, filenames and slice indices of the associated h5 files.
         """
-        trainset = T2starDataset(path=self.train_data_path,
+        trainset = T2starDataset(self.data_dir['train'],    #path=self.train_data_path,
                                  only_bm_slices=self.only_brainmask_slices,
                                  bm_thr=self.bm_thr,
                                  normalize=self.normalize,
@@ -220,7 +430,7 @@ class T2starLoader(pl.LightningDataModule):
         """Loads a batch of validation data consisting of kspace data, target
         mask, filenames and slice indices of the associated h5 files.
         """
-        valset = T2starDataset(self.val_data_path,
+        valset = T2starDataset(self.data_dir['val'],    #self.val_data_path,
                                only_bm_slices=self.only_brainmask_slices,
                                bm_thr=self.bm_thr,
                                normalize=self.normalize,
@@ -248,7 +458,7 @@ class T2starLoader(pl.LightningDataModule):
         test data loader 'drop_last' is enabled, which means that no data will
         be loaded if the batch size is larger than the size of the test set.
         """
-        testset = T2starDataset(self.test_data_path,
+        testset = T2starDataset(self.data_dir['test'],    #self.test_data_path,
                                 only_bm_slices=self.only_brainmask_slices,
                                 bm_thr=self.bm_thr,
                                 normalize=self.normalize,
@@ -275,7 +485,7 @@ class T2starLoader(pl.LightningDataModule):
         return dataloader
 
 
-class T2StarRawDataSample(NamedTuple):
+class T2StarDataSample(NamedTuple):
     """Generate named tuples consisting of filename and slice index"""
     fname: pathlib.Path
     slice_ind: int
