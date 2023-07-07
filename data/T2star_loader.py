@@ -119,12 +119,14 @@ class RawT2starDataset(Dataset):
         img_cc_zf = np.sum(coil_imgs_zf * np.conj(sens_maps), axis=1)
 
         if self.select_echo is not False:
-            img_cc_fs = img_cc_fs[self.select_echo]
-            img_cc_zf = img_cc_zf[self.select_echo]
+            img_cc_fs = [img_cc_fs[self.select_echo]]
+            img_cc_zf = [img_cc_zf[self.select_echo]]
 
         # return zero-filled image, fully sampled image, mask sensitivity maps etc
-        return torch.as_tensor(img_cc_zf), torch.as_tensor(img_cc_fs), \
-               torch.as_tensor(mask), torch.as_tensor(sens_maps), \
+        return torch.as_tensor(img_cc_zf, dtype=torch.complex64), \
+               torch.as_tensor(img_cc_fs, dtype=torch.complex64), \
+               torch.as_tensor(mask, dtype=torch.complex64), \
+               torch.as_tensor(sens_maps, dtype=torch.complex64), \
                str(filename), dataslice
 
 
