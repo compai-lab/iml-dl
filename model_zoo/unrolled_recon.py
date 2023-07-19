@@ -26,7 +26,7 @@ class ComplexUnrolledNetwork(ComplexModule):
 
         self.nr_iterations = nr_iterations
         self.T = 1 if weight_sharing else nr_iterations
-        input_dim = 12 if not select_echo else 1
+        input_dim = 12 if select_echo is False else 1
 
         # create layers
         self.denoiser = torch.nn.ModuleList([MerlinthComplexCNN(dim='2D',
@@ -43,7 +43,7 @@ class ComplexUnrolledNetwork(ComplexModule):
 
         A = merlinth.layers.mri.MulticoilForwardOp(center=True, channel_dim_defined=False)
         AH = merlinth.layers.mri.MulticoilAdjointOp(center=True, channel_dim_defined=False)
-        self.DC = torch.nn.ModuleList([merlinth.layers.data_consistency.DCGD(A, AH, weight_init=1.0)
+        self.DC = torch.nn.ModuleList([merlinth.layers.data_consistency.DCGD(A, AH, weight_init=1e-4)
                                        for _ in range(self.T)])
 
         self.apply(self.weight_init)

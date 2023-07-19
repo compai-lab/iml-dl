@@ -94,15 +94,17 @@ class RawT2starDataset(Dataset):
                 print('Error in load_raw_mat: Unexpected data format: ',
                       raw_data.dtype)
 
-        if self.normalize == "abs_image":
-            norm = np.amax(abs(ifft2c(kspace))) + 1e-9
-            kspace /= norm
-
         # undersample with a random mask:
+        nc, ne, npe, nfe = kspace.shape
         if self.random_mask is not False:
-            nc, ne, npe, nfe = kspace.shape
             mask = np.random.choice([1, 0], (npe), p=[1 / self.random_mask[0], 1 - 1 / self.random_mask[0]])
             mask[npe//2 - self.random_mask[1]//2:npe//2 + self.random_mask[1]//2] = 1
+        else:
+            mask = np.array([1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 1, 0, 1, 0, 0, 0, 0,
+                             1, 0, 0, 1, 0, 0, 1, 0, 1, 1, 1, 1, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0,
+                             1, 1, 1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 1, 1, 1, 0, 1, 0, 0,
+                             1, 1, 0, 1, 1, 0, 0, 0, 1, 1, 0, 1, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1,
+                             1, 1, 0, 1])
         mask = mask.reshape(1, 1, npe, 1).repeat(nc, axis=0).repeat(ne, axis=1).repeat(nfe, axis=3)
         kspace_zf = kspace*mask
 
@@ -119,8 +121,16 @@ class RawT2starDataset(Dataset):
         img_cc_zf = np.sum(coil_imgs_zf * np.conj(sens_maps), axis=1)
 
         if self.select_echo is not False:
-            img_cc_fs = [img_cc_fs[self.select_echo]]
-            img_cc_zf = [img_cc_zf[self.select_echo]]
+            img_cc_fs = np.array([img_cc_fs[self.select_echo]])
+            img_cc_zf = np.array([img_cc_zf[self.select_echo]])
+            mask = np.array([mask[self.select_echo]])
+
+        if self.normalize == "abs_image":
+            norm = np.nanmax(abs(img_cc_zf)) + 1e-9
+            img_cc_zf /= norm
+            img_cc_fs /= norm
+            # norm = np.amax(abs(ifft2c(kspace))) + 1e-9
+            # kspace /= norm
 
         # return zero-filled image, fully sampled image, mask sensitivity maps etc
         return torch.as_tensor(img_cc_zf, dtype=torch.complex64), \
@@ -140,6 +150,7 @@ class RawT2starLoader(pl.LightningDataModule):
         self.normalize = args['normalize'] if 'normalize' in akeys else "abs_image"
         self.overfit_one_sample = args['overfit_one_sample'] if 'overfit_one_sample' in akeys else False
         self.select_echo = args['select_echo'] if 'select_echo' in akeys else False
+        self.random_mask = args['random_mask'] if 'random_mask' in akeys else [2, 10]
         self.drop_last = False if self.overfit_one_sample else True
         self.num_workers = args['num_workers'] if 'num_workers' in akeys else 1
         self.data_dir = args['data_dir'] if 'data_dir' in akeys else None
@@ -155,6 +166,7 @@ class RawT2starLoader(pl.LightningDataModule):
                                     bm_thr=self.bm_thr,
                                     normalize=self.normalize,
                                     select_echo=self.select_echo,
+                                    random_mask=self.random_mask,
                                     overfit_one_sample=self.overfit_one_sample)
         logging.info(f"Size of the train dataset: {trainset.__len__()}.")
 
@@ -177,6 +189,7 @@ class RawT2starLoader(pl.LightningDataModule):
                                   bm_thr=self.bm_thr,
                                   normalize=self.normalize,
                                   select_echo=self.select_echo,
+                                  random_mask=self.random_mask,
                                   overfit_one_sample=self.overfit_one_sample)
         logging.info(f"Size of the validation dataset: {valset.__len__()}.")
 
@@ -201,12 +214,13 @@ class RawT2starLoader(pl.LightningDataModule):
                                    bm_thr=self.bm_thr,
                                    normalize=self.normalize,
                                    select_echo=self.select_echo,
+                                   random_mask=self.random_mask,
                                    overfit_one_sample=self.overfit_one_sample)
         logging.info(f"Size of the test dataset: {testset.__len__()}.")
 
-        if testset.__len__() < self.batch_size:
-            logging.info('The batch size ({}) is larger than the size of the test set({})! Since the dataloader has '
-                         'drop_last enabled, no data will be loaded!'.format(self.batch_size, testset.__len__()))
+        # if testset.__len__() < self.batch_size:
+        #     logging.info('The batch size ({}) is larger than the size of the test set({})! Since the dataloader has '
+        #                  'drop_last enabled, no data will be loaded!'.format(self.batch_size, testset.__len__()))
 
         dataloader = DataLoader(
             testset,
