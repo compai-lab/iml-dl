@@ -1,4 +1,6 @@
+import torch
 from torch.nn import L1Loss, MSELoss
+from merlinth.losses.pairwise_loss import mse
 
 
 class L2:
@@ -17,3 +19,13 @@ class L1:
 
     def __call__(self, x, x_recon, z=None):
         return self.loss_(x, x_recon)
+
+
+class MSE:
+    def __init__(self, batch=True, reduce=True):
+        super(MSE, self).__init__()
+        self.batch = batch
+        self.reduce = reduce
+
+    def __call__(self, gt, pred):
+         return mse(gt, pred, batch=self.batch, reduce=self.reduce)
