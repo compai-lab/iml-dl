@@ -82,7 +82,11 @@ class Trainer:
 
         self.log_wandb = log_wandb
 
-        wandb.watch(self.model)
+        if not training_params.get('wandb_log_gradients', True):
+            # log=None necessary e.g. for complex-valued models, since wandb cannot log complex gradients
+            wandb.watch(self.model, log=None)
+        else:
+            wandb.watch(self.model)
         # input_size = (1, 1, self.training_params['input_size'][0],  self.training_params['input_size'][1])
         # print(f'Input size of summery is: {input_size}')
         # summary(model, input_size)
