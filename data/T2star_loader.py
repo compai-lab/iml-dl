@@ -100,11 +100,16 @@ class RawT2starDataset(Dataset):
             mask = np.random.choice([1, 0], (npe), p=[1 / self.random_mask[0], 1 - 1 / self.random_mask[0]])
             mask[npe//2 - self.random_mask[1]//2:npe//2 + self.random_mask[1]//2] = 1
         else:
-            mask = np.array([1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 1, 0, 1, 0, 0, 0, 0,
-                             1, 0, 0, 1, 0, 0, 1, 0, 1, 1, 1, 1, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0,
-                             1, 1, 1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 1, 1, 1, 0, 1, 0, 0,
-                             1, 1, 0, 1, 1, 0, 0, 0, 1, 1, 0, 1, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1,
-                             1, 1, 0, 1])
+            # mask = np.array([1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 1, 0, 1, 0, 0, 0, 0,
+            #                  1, 0, 0, 1, 0, 0, 1, 0, 1, 1, 1, 1, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0,
+            #                  1, 1, 1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 1, 1, 1, 0, 1, 0, 0,
+            #                  1, 1, 0, 1, 1, 0, 0, 0, 1, 1, 0, 1, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1,
+            #                  1, 1, 0, 1])
+            mask = np.array([1, 1, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0,
+                             0, 0, 0, 0, 1, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1,
+                             1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 1, 1,
+                             1, 0, 1, 0, 1, 1, 0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0, 1, 0, 0,
+                             1, 1, 1, 0])
         mask = mask.reshape(1, 1, npe, 1).repeat(nc, axis=0).repeat(ne, axis=1).repeat(nfe, axis=3)
         kspace_zf = kspace*mask
 
@@ -129,14 +134,18 @@ class RawT2starDataset(Dataset):
             norm = np.nanmax(abs(img_cc_zf)) + 1e-9
             img_cc_zf /= norm
             img_cc_fs /= norm
-            # norm = np.amax(abs(ifft2c(kspace))) + 1e-9
-            # kspace /= norm
+
+        # equal coil dimension of 32 for all datasets:
+        sens_maps_32 = np.zeros((sens_maps.shape[0], 32, sens_maps.shape[2], sens_maps.shape[3]), dtype=sens_maps.dtype)
+        sens_maps_32[:, :sens_maps.shape[1]] = sens_maps
+        mask_32 = np.zeros((mask.shape[0], 32, mask.shape[2], mask.shape[3]), dtype=mask.dtype)
+        mask_32[:, :mask.shape[1]] = mask
 
         # return zero-filled image, fully sampled image, mask sensitivity maps etc
         return torch.as_tensor(img_cc_zf, dtype=torch.complex64), \
                torch.as_tensor(img_cc_fs, dtype=torch.complex64), \
-               torch.as_tensor(mask, dtype=torch.complex64), \
-               torch.as_tensor(sens_maps, dtype=torch.complex64), \
+               torch.as_tensor(mask_32, dtype=torch.complex64), \
+               torch.as_tensor(sens_maps_32, dtype=torch.complex64), \
                str(filename), dataslice
 
 
