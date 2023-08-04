@@ -15,6 +15,7 @@ class ComplexUnrolledNetwork(ComplexModule):
     """
     def __init__(self,
                  nr_iterations=10,
+                 dc_method="GD",
                  weight_sharing=True,
                  select_echo=False,
                  nr_filters=64,
@@ -25,6 +26,7 @@ class ComplexUnrolledNetwork(ComplexModule):
         super(ComplexUnrolledNetwork, self).__init__()
 
         self.nr_iterations = nr_iterations
+        self.dc_method = dc_method
         self.T = 1 if weight_sharing else nr_iterations
         input_dim = 12 if select_echo is False else 1
 
@@ -43,8 +45,16 @@ class ComplexUnrolledNetwork(ComplexModule):
 
         A = merlinth.layers.mri.MulticoilForwardOp(center=True, channel_dim_defined=False)
         AH = merlinth.layers.mri.MulticoilAdjointOp(center=True, channel_dim_defined=False)
-        self.DC = torch.nn.ModuleList([merlinth.layers.data_consistency.DCGD(A, AH, weight_init=1e-4)
-                                       for _ in range(self.T)])
+        if self.dc_method == "GD":
+            self.DC = torch.nn.ModuleList([merlinth.layers.data_consistency.DCGD(A, AH, weight_init=1e-4)
+                                           for _ in range(self.T)])
+        elif self.dc_method == "PM":
+            self.DC = torch.nn.ModuleList([merlinth.layers.data_consistency.DCPM(A, AH, weight_init=1e-2)
+                                           for _ in range(self.T)])
+        elif self.dc_method == "None":
+            self.DC = []
+        else:
+            print("This DC Method is not implemented.")
 
         self.apply(self.weight_init)
 
@@ -59,7 +69,8 @@ class ComplexUnrolledNetwork(ComplexModule):
         for i in range(self.nr_iterations):
             ii = i % self.T
             x = x + self.denoiser[ii](x)
-            x = self.DC[ii]([x, y, mask, smaps])
+            if self.dc_method != "None":
+                x = self.DC[ii]([x, y, mask, smaps])
         return x
 
 
