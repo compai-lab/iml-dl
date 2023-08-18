@@ -8,7 +8,7 @@ import logging
 from typing import NamedTuple
 import nibabel as nib
 import glob
-from medutils.mri import ifft2c
+from medutils.mri import ifft2c, rss
 
 
 class RawT2starDataset(Dataset):
@@ -116,6 +116,7 @@ class RawT2starDataset(Dataset):
         # pad coil sensitivity maps to have same shape as images:
         pad_width = ((0, 0), (0, 0), (0, 0), (int((kspace.shape[-1] - sens_maps.shape[-1])/2), int((kspace.shape[-1] - sens_maps.shape[-1])/2)))
         sens_maps = np.pad(sens_maps, pad_width, mode='constant')
+        sens_maps = np.nan_to_num(sens_maps / rss(sens_maps, 1))
 
         # zero-filled and fully sampled coil combined reconstructions:
         coil_imgs_fs = ifft2c(kspace)
