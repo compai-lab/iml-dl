@@ -29,3 +29,13 @@ class MSE:
 
     def __call__(self, gt, pred):
          return mse(gt, pred, batch=self.batch, reduce=self.reduce)
+
+
+class SeparateL2:
+    def __init__(self):
+        super(SeparateL2, self).__init__()
+        self.loss_ = MSELoss()
+
+    def __call__(self, gt, pred):
+        return self.loss_(torch.abs(gt), torch.abs(pred)) + \
+               self.loss_(torch.angle(gt), torch.angle(pred))
