@@ -3,6 +3,7 @@ import merlinth
 from merlinth.layers import ComplexConv2d, ComplexConv3d
 from merlinth.layers.complex_act import cReLU
 from merlinth.layers.module import ComplexModule
+from merlinth.complex import complex2real, real2complex
 
 
 class ComplexUnrolledNetwork(ComplexModule):
@@ -16,6 +17,7 @@ class ComplexUnrolledNetwork(ComplexModule):
     def __init__(self,
                  nr_iterations=10,
                  dc_method="GD",
+                 denoiser_method="ComplexCNN",
                  weight_sharing=True,
                  select_echo=False,
                  nr_filters=64,
@@ -31,17 +33,32 @@ class ComplexUnrolledNetwork(ComplexModule):
         input_dim = 12 if select_echo is False else 1
 
         # create layers
-        self.denoiser = torch.nn.ModuleList([MerlinthComplexCNN(dim='2D',
-                                                                input_dim=input_dim,
-                                                                filters=nr_filters,
-                                                                kernel_size=kernel_size,
-                                                                num_layer=nr_layers,
-                                                                activation=activation,
-                                                                use_bias=True,
-                                                                normalization=None,
-                                                                weight_std=False,
-                                                                **kwargs)
-                                             for _ in range(self.T)])
+        if denoiser_method == "ComplexCNN":
+            self.denoiser = torch.nn.ModuleList([MerlinthComplexCNN(dim='2D',
+                                                                    input_dim=input_dim,
+                                                                    filters=nr_filters,
+                                                                    kernel_size=kernel_size,
+                                                                    num_layer=nr_layers,
+                                                                    activation=activation,
+                                                                    use_bias=True,
+                                                                    normalization=None,
+                                                                    weight_std=False,
+                                                                    **kwargs)
+                                                 for _ in range(self.T)])
+        elif denoiser_method == "Real2chCNN":
+            self.denoiser = torch.nn.ModuleList([Real2chCNN(dim='2D',
+                                                            input_dim=input_dim,
+                                                            filters=nr_filters,
+                                                            kernel_size=kernel_size,
+                                                            num_layer=nr_layers,
+                                                            activation=activation,
+                                                            use_bias=True,
+                                                            normalization=None,
+                                                            **kwargs)
+                                                 for _ in range(self.T)])
+        else:
+            print("This denoiser method is not implemented yet.")
+
 
         A = merlinth.layers.mri.MulticoilForwardOp(center=True, channel_dim_defined=False)
         AH = merlinth.layers.mri.MulticoilAdjointOp(center=True, channel_dim_defined=False)
@@ -72,6 +89,93 @@ class ComplexUnrolledNetwork(ComplexModule):
             if self.dc_method != "None":
                 x = self.DC[ii]([x, y, mask, smaps])
         return x
+
+
+class Real2chCNN(ComplexModule):
+    """adapted from merlinth.models.cnn.Real2chCNN"""
+    def __init__(
+            self,
+            dim="2D",
+            input_dim=1,
+            filters=64,
+            kernel_size=3,
+            num_layer=5,
+            activation="relu",
+            use_bias=True,
+            normalization=None,
+            **kwargs,
+    ):
+        super().__init__()
+        # get correct conv operator
+        if dim == "2D":
+            conv_layer = torch.nn.Conv2d
+        elif dim == "3D":
+            conv_layer = torch.nn.Conv3d
+        else:
+            raise RuntimeError(f"Convolutions for dim={dim} not implemented!")
+
+        if activation == "relu":
+            act_layer = torch.nn.ReLU
+
+        padding = kernel_size // 2
+        # create layers
+        self.ops = []
+
+        self.ops.append(
+            conv_layer(
+                input_dim * 2,
+                filters,
+                kernel_size,
+                padding=padding,
+                bias=use_bias,
+                **kwargs,
+            )
+        )
+        if normalization is not None:
+            self.ops.append(normalization())
+
+        self.ops.append(act_layer(inplace=True))
+
+        for _ in range(num_layer - 2):
+            self.ops.append(
+                conv_layer(
+                    filters,
+                    filters,
+                    kernel_size,
+                    padding=padding,
+                    bias=use_bias,
+                    **kwargs,
+                )
+            )
+            if normalization is not None:
+                self.ops.append(normalization())
+            self.ops.append(act_layer(inplace=True))
+
+        self.ops.append(
+            conv_layer(
+                filters,
+                input_dim*2,
+                kernel_size,
+                bias=False,
+                padding=padding,
+                **kwargs,
+            )
+        )
+
+        self.ops = torch.nn.Sequential(*self.ops)
+        self.apply(self.weight_initializer)
+
+    def weight_initializer(self, module):
+        if isinstance(module, torch.nn.Conv2d) or isinstance(module, torch.nn.Linear):
+            # equivalent to tf.layers.xavier_initalization()
+            torch.nn.init.xavier_uniform_(module.weight, gain=1)
+            if module.bias is not None:
+                module.bias.data.fill_(0)
+
+    def forward(self, x):
+        x = complex2real(x)
+        x = self.ops(x)
+        return real2complex(x)
 
 
 class MerlinthComplexCNN(ComplexModule):
