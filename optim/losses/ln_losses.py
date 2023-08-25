@@ -31,7 +31,7 @@ class MSE:
          return mse(gt, pred, batch=self.batch, reduce=self.reduce)
 
 
-class SeparateL2:
+class MagnPhaseL2:
     def __init__(self):
         super(SeparateL2, self).__init__()
         self.loss_ = MSELoss()
@@ -39,3 +39,22 @@ class SeparateL2:
     def __call__(self, gt, pred):
         return self.loss_(torch.abs(gt), torch.abs(pred)) + \
                self.loss_(torch.angle(gt), torch.angle(pred))
+
+
+class MagnL2:
+    def __init__(self):
+        super(MagnL2, self).__init__()
+        self.loss_ = MSELoss()
+
+    def __call__(self, gt, pred):
+        return self.loss_(torch.abs(gt), torch.abs(pred))
+
+
+class RealImagL2:
+    def __init__(self):
+        super(RealImagL2, self).__init__()
+        self.loss_ = MSELoss()
+
+    def __call__(self, gt, pred):
+        return (self.loss_(torch.real(gt), torch.real(pred)) +
+                self.loss_(torch.imag(gt), torch.imag(pred)))
