@@ -167,7 +167,6 @@ class Real2chCNN(ComplexModule):
 
     def weight_initializer(self, module):
         if isinstance(module, torch.nn.Conv2d) or isinstance(module, torch.nn.Linear):
-            # equivalent to tf.layers.xavier_initalization()
             torch.nn.init.xavier_uniform_(module.weight, gain=1)
             if module.bias is not None:
                 module.bias.data.fill_(0)

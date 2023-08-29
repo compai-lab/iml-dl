@@ -53,10 +53,37 @@ class RawT2starDataset(Dataset):
         files = list(pathlib.Path(self.path).iterdir())
         for filename in sorted(files):
             slices_ind = self._get_slice_indices(filename)
-
             new_samples = []
-            for slice_ind in slices_ind:
-                new_samples.append(T2StarDataSample(filename, slice_ind))
+
+            with h5py.File(filename, "r") as f:
+                for dataslice in slices_ind:
+                    raw_data = f['out']['Data'][dataslice, :, 0, 0, :, 0]
+                    tmp = f['out']['Parameter']['YRange'][:]
+                    if len(np.unique(tmp[0])) > 1 or len(np.unique(tmp[1])) > 1:
+                        print('Error: different y shifts for different echoes!')
+                    y_shift = -int((tmp[0, 0] + tmp[1, 0]) / 2)
+                    # y_shift to be used on images (see below)
+
+                    # convert to proper complex data
+                    if isinstance(raw_data, np.ndarray) and raw_data.dtype == [('real', '<f4'), ('imag', '<f4')]:
+                        kspace = raw_data.view(np.complex64).astype(np.complex64)
+                        sens_maps = f['out']['SENSE']['maps'][dataslice, :, 0, 0, :, 0].view(np.complex64).astype(
+                            np.complex64)
+                    else:
+                        print('Error in load_raw_mat: Unexpected data format: ',
+                              raw_data.dtype)
+
+                    # pad coil sensitivity maps to have same shape as images:
+                    pad_width = ((0, 0), (0, 0), (0, 0), (int((kspace.shape[-1] - sens_maps.shape[-1]) / 2),
+                                                          int((kspace.shape[-1] - sens_maps.shape[-1]) / 2)))
+                    sens_maps = np.pad(sens_maps, pad_width, mode='constant')
+                    sens_maps = np.nan_to_num(sens_maps / rss(sens_maps, 1))
+
+                    new_samples.append(T2StarRawDataSample(filename,
+                                                           dataslice,
+                                                           kspace,
+                                                           sens_maps,
+                                                           y_shift))
 
             self.raw_samples += new_samples
 
@@ -76,23 +103,8 @@ class RawT2starDataset(Dataset):
         return len(self.raw_samples)
 
     def __getitem__(self, idx):
-        filename, dataslice = self.raw_samples[idx]
-
-        with h5py.File(filename, "r") as f:
-            raw_data = f['out']['Data'][dataslice, :, 0, 0, :, 0]
-            tmp = f['out']['Parameter']['YRange'][:]
-            if len(np.unique(tmp[0])) > 1 or len(np.unique(tmp[1])) > 1:
-                print('Error: different y shifts for different echoes!')
-            y_shift = -int((tmp[0, 0] + tmp[1, 0]) / 2)
-            # y_shift to be used on images (see below)
-
-            # convert to proper complex data
-            if isinstance(raw_data, np.ndarray) and raw_data.dtype == [('real', '<f4'), ('imag', '<f4')]:
-                kspace = raw_data.view(np.complex64).astype(np.complex64)
-                sens_maps = f['out']['SENSE']['maps'][dataslice, :, 0, 0, :, 0].view(np.complex64).astype(np.complex64)
-            else:
-                print('Error in load_raw_mat: Unexpected data format: ',
-                      raw_data.dtype)
+        #filename, dataslice = self.raw_samples[idx]
+        filename, dataslice, kspace, sens_maps, y_shift = self.raw_samples[idx]
 
         # undersample with a random mask:
         nc, ne, npe, nfe = kspace.shape
@@ -100,11 +112,6 @@ class RawT2starDataset(Dataset):
             mask = np.random.choice([1, 0], (npe), p=[1 / self.random_mask[0], 1 - 1 / self.random_mask[0]])
             mask[npe//2 - self.random_mask[1]//2:npe//2 + self.random_mask[1]//2] = 1
         else:
-            # mask = np.array([1, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 1, 0, 1, 0, 0, 0, 0,
-            #                  1, 0, 0, 1, 0, 0, 1, 0, 1, 1, 1, 1, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0,
-            #                  1, 1, 1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 1, 1, 0, 1, 1, 1, 0, 1, 0, 0,
-            #                  1, 1, 0, 1, 1, 0, 0, 0, 1, 1, 0, 1, 0, 1, 1, 1, 1, 1, 1, 0, 1, 1,
-            #                  1, 1, 0, 1])
             mask = np.array([1, 1, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0,
                              0, 0, 0, 0, 1, 0, 1, 1, 0, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1,
                              1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 0, 1, 1,
@@ -112,11 +119,6 @@ class RawT2starDataset(Dataset):
                              1, 1, 1, 0])
         mask = mask.reshape(1, 1, npe, 1).repeat(nc, axis=0).repeat(ne, axis=1).repeat(nfe, axis=3)
         kspace_zf = kspace*mask
-
-        # pad coil sensitivity maps to have same shape as images:
-        pad_width = ((0, 0), (0, 0), (0, 0), (int((kspace.shape[-1] - sens_maps.shape[-1])/2), int((kspace.shape[-1] - sens_maps.shape[-1])/2)))
-        sens_maps = np.pad(sens_maps, pad_width, mode='constant')
-        sens_maps = np.nan_to_num(sens_maps / rss(sens_maps, 1))
 
         # zero-filled and fully sampled coil combined reconstructions:
         coil_imgs_fs = ifft2c(kspace)
@@ -515,6 +517,15 @@ class T2StarDataSample(NamedTuple):
     """Generate named tuples consisting of filename and slice index"""
     fname: pathlib.Path
     slice_ind: int
+
+
+class T2StarRawDataSample(NamedTuple):
+    """Generate named tuples consisting of filename, slice index and loaded raw data"""
+    fname: pathlib.Path
+    slice_ind: int
+    kspace: np.ndarray
+    sens_maps: np.ndarray
+    y_shift: int
 
 
 def fft2c(x, shape=None, dim=(-2, -1)):
