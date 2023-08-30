@@ -79,16 +79,13 @@ class DefaultDataset(Dataset):
         return default_t
 
     def get_image_transform_test(self):
-        default_t = transforms.Compose([ReadImage(), To01(),
-                                       # Norm98(), #Slice(),
-                                        Pad((18, 18)),
-                                        AddChannelIfNeeded(),
-                                        AssertChannelFirst(), self.RES,
-                                        #transforms.ToPILImage(), transforms.RandomAffine(20, (0.1, 0.1), (0.9, 1.1)),
-                                        #transforms.RandomVerticalFlip(0.4),
-                                        #transforms.ToTensor()
+        default_t_test = transforms.Compose([ReadImage2(), Norm98()#, Norm98()
+                                      # ,Pad3D((1, 1, 1), type='end')
+                                        # Flip(), #  Slice(),
+                                        ,AddChannelIfNeeded(dim=3)
+                                       #,Resize3D(self.target_size)
                                         ])
-        return default_t
+        return default_t_test
 
     def get_label_transform(self):
         default_t = transforms.Compose([ReadImage(), To01(),

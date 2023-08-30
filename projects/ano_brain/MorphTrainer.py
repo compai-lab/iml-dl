@@ -168,7 +168,7 @@ class PTrainer(Trainer):
                 # Forward pass
                 x_rec, rec_dict = self.test_model(x)
                 x_ = rec_dict['x_prior']
-
+                deformation = rec_dict['deformation']
                 loss_rec = self.criterion_rec(x_, x, rec_dict)
                 loss_mse = self.criterion_MSE(x_, x)
                 loss_mse += self.criterion_MSE(x_rec, x)
@@ -179,25 +179,32 @@ class PTrainer(Trainer):
                 metrics[task + '_loss_mse'] += loss_mse.item() * x.size(0)
                 metrics[task + '_loss_pl'] += loss_pl.item() * x.size(0)
 
-        for i in range(5):
-            global_prior = x_.detach().cpu()[i].numpy()
-            # global_prior[0, 0], global_prior[0, 1] = 0, 1
-            rec = x_rec.detach().cpu()[i].numpy()
-            # rec[0, 0], rec[0, 1] = 0, 1
-            img = x.detach().cpu()[i].numpy()
-            # img[0, 0], img[0, 1] = 0, 1
-            # grid_image = np.hstack([img, global_prior, rec])
-            elements = [img, global_prior, rec, np.abs(global_prior-img), np.abs(rec-img)]
-            diffp, axarr = plt.subplots(1, len(elements), gridspec_kw={'wspace': 0, 'hspace': 0})
-            diffp.set_size_inches(len(elements) * 4, 4)
-            for i in range(len(axarr)):
-                axarr[i].axis('off')
-                v_max = 1 if i < np.floor((len(elements) / 2)) + 1 else 0.5
-                c_map = 'gray' if i < np.floor((len(elements) / 2)) + 1 else 'inferno'
-                axarr[i].imshow(np.squeeze(elements[i].transpose(1, 2, 0)), vmin=0, vmax=v_max, cmap=c_map)
-        
-            wandb.log({task + '/Example_': [
-                    wandb.Image(diffp, caption="Iteration_" + str(epoch))]})
+                global_prior = x_.detach().cpu()[0].numpy()
+                # global_prior[0, 0], global_prior[0, 1] = 0, 1
+                rec = x_rec.detach().cpu()[0].numpy()
+                # rec[0, 0], rec[0, 1] = 0, 1
+                img = x.detach().cpu()[0].numpy()
+                # img[0, 0], img[0, 1] = 0, 1
+                # grid_image = np.hstack([img, global_prior, rec])
+                deff = deformation.detach().cpu()[0].numpy()
+                # img[0, 0], img[0, 1] = 0, 1
+                # grid_image = np.hstack([img, global_prior, rec])
+                elements = [img, global_prior, rec, np.abs(global_prior-img), np.abs(rec-img),deff]
+                diffp, axarr = plt.subplots(1, len(elements), gridspec_kw={'wspace': 0, 'hspace': 0})
+                diffp.set_size_inches(len(elements) * 4, 4)
+                for i in range(len(axarr)):
+                    axarr[i].axis('off')
+                    if i!=len(axarr)-1:
+                        v_max = 1 if i < np.floor(((len(elements)-1) / 2)) + 1 else 0.5
+                        c_map = 'gray' if i < np.floor(((len(elements)-1) / 2)) + 1 else 'inferno'               
+                        axarr[i].imshow(np.squeeze(elements[i].transpose(1, 2, 0)), vmin=0, vmax=v_max, cmap=c_map)
+                    else:
+                        plot_warped_grid(ax=axarr[i],disp=deff)
+            
+                wandb.log({task + '/Example_': [
+                        wandb.Image(diffp, caption="Iteration_" + str(epoch))]})
+                if task=='Val':
+                    break
 
         for metric_key in metrics.keys():
             metric_name = task + '/' + str(metric_key)

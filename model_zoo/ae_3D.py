@@ -76,7 +76,7 @@ class Decoder(nn.Sequential):
                 layer_channels = layer_channels + channels[-i-1]
 
             if  deconv_mode == 'stride':
-                self.add_module(name_prefix + "_upsample_%i" % i, nn.Upsample(scale_factor=s, mode='trilinear',
+                self.add_module(name_prefix + "_upsample_%i" % i, nn.Upsample(scale_factor=s, mode='nearest',
                                                                               align_corners=True))
 
                 self.add_module(name_prefix + "_decode_%i" % i,

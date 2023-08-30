@@ -102,8 +102,10 @@ class Deformer(nn.Module):
                     i_r_level += 1
                 else:
                     disp_x = ref_layer(disp_x)
-        for i in range(3):
-         # with torch.no_grad():    
+        with torch.no_grad():    
+
+         for i in range(3):
+          with torch.no_grad():    
             flow_field = self.flow(disp_x)
 
             # resize flow for integration

@@ -9,8 +9,13 @@ import wandb
 import plotly.graph_objects as go
 import seaborn as sns
 #
-from torch.nn import L1Loss
+from optim.losses import MedicalNetPerceptualSimilarity
+
+from torch.nn import L1Loss, MSELoss
 #
+from dl_utils.visualization import plot_warped_grid
+from optim.losses import PerceptualLoss
+
 from skimage.metrics import structural_similarity as ssim
 from pytorch_msssim import ssim as ssim2
 from sklearn.metrics import roc_auc_score, roc_curve
@@ -42,7 +47,8 @@ class PDownstreamEvaluator(DownstreamEvaluator):
     def __init__(self, name, model, device, test_data_dict, checkpoint_path, global_= True):
         super(PDownstreamEvaluator, self).__init__(name, model, device, test_data_dict, checkpoint_path)
 
-        self.criterion_rec = L1Loss().to(self.device)
+        self.criterion_rec = MSELoss().to(self.device)
+        self.criterion_MSE = MSELoss().to(self.device)
        # self.auprc = AUPRC()
         self.compute_scores = True
         self.vgg_encoder = VGGEncoder().to(self.device)
@@ -371,22 +377,20 @@ class PDownstreamEvaluator(DownstreamEvaluator):
 
         self.model.load_state_dict(global_model)
         self.model.eval()
-        metrics = {
-            'MSE': [],
-            'LPIPS': [],
-            'SSIM': []
-        }
         pred_dict = dict()
+        task='Test_Alzheimer'
+        metrics = {
+            task + '_loss_rec': 0,
+            task + '_loss_mse': 0,
+            task + '_loss_pl': 0,
+        }
+        loss_mse_array=[]
+        loss_mse_array=np.array(loss_mse_array)
+
         for dataset_key in self.test_data_dict.keys():
-            pred_ = []
-            label_ = []
+
             dataset = self.test_data_dict[dataset_key]
-            test_metrics = {
-                'MSE': [],
-                'LPIPS': [],
-                'SSIM': []
-            }
-            logging.info('DATASET: {}'.format(dataset_key))
+            test_total=0
             for idx, data in enumerate(dataset):
                 if type(data) is dict and 'images' in data.keys():
                     data0 = data['images']
@@ -394,166 +398,151 @@ class PDownstreamEvaluator(DownstreamEvaluator):
                     data0 = data[0]
                 x = data0.to(self.device)
                 x_rec, x_rec_dict = self.model(x)
-                saliency = None
-                x_res = np.abs(x_rec - x.detach().cpu().numpy())
-                x_rec=torch.from_numpy(x_rec)
-                x_res.to(self.device)
-                if 'embeddings' in x_rec_dict.keys():
-                    #     # x_res = gaussian_filter(x_res, sigma=2)
-                    #     saliency = self.get_saliency(x_rec_i.detach(), x_i.detach())
-                    x_res, saliency = self.compute_residual(x_rec, x)
-                    # x_res = x_res.detach().numpy()
+                if len(x.shape)==4:
+                    b, c, h, w = x.shape
+                else:
+                    b, c, h, w,d = x.shape
 
-                for i in range(len(x)):
-                    count = str(idx * len(x) + i)
-                    x_i = x[i][0]
-                    x_rec_i = x_rec[i][0]
-                    x_res_i = x_res[i][0]
-                    saliency_i = saliency[i][0] if saliency is not None else None
-
-                    #
-                    loss_mse = self.criterion_rec(x_rec_i, x_i)
-                    test_metrics['MSE'].append(loss_mse.item())
-                    loss_lpips = np.squeeze(lpips_alex(x_i.cpu(), x_rec_i.cpu()).detach().numpy())
-                    test_metrics['LPIPS'].append(loss_lpips)
-                    #
-                    x_ = x_i.cpu().detach().numpy()
-                    x_rec_ = x_rec_i.cpu().detach().numpy()
-                    # np.save(self.checkpoint_path + '/' + dataset_key + '_' + str(count) + '_rec.npy', x_rec_)
-
-                    ssim_ = ssim(x_rec_, x_, data_range=1.)
-                    test_metrics['SSIM'].append(ssim_)
-
-                    x_res = np.abs(x_rec_ - x_)
-                    # if 'embeddings' in x_rec_dict.keys():
-                    #     x_res, saliency = self.compute_residual(x_rec, x)
-                    #     x_res_orig = copy.deepcopy(x_res)
-                    #     # saliency = self.get_saliency(x_rec.detach(), x.detach())
-                    #     # x_res = x_res * saliency
-                    #     x_res = saliency
-                    if 'embeddings' in x_rec_dict.keys():
-                        x_res_orig = copy.deepcopy(x_res_i)
-                        x_coarse_res = x_rec_dict['residual'][i][0]
-                        saliency_coarse = x_rec_dict['saliency'][i][0]
-                        # x_res_i[x_res_i>0.1] = 1
-                        # x_coarse_res[x_coarse_res>0.1] = 1
-                        # x_res_i = gaussian_filter((x_res_i * x_coarse_res), sigma=2) * (
-                        #             saliency_i * saliency_coarse)
-                        x_ress = x_res_i
-                        # x_ress[x_ress>0.15] = 1
-                        # x_res_i = x_ress + (saliency_i)
-                        x_res_i = (x_res_i * x_coarse_res)
-
-                    res_pred = np.mean(x_res_i)
-                    label = 0 if 'Normal' in dataset_key else 1
-                    pred_.append(res_pred)
-                    label_.append(label)
-
-                    if (idx % 30) == 0:  # and (i % 5 == 0) or int(count)==13600 or int(count)==40:
-                        elements = [x_, x_rec_, x_res]
-                        v_maxs = [1, 1, 0.5]
-                        titles = ['Input', 'Rec', str(res_pred)]
-                        # if 'embeddings' in x_rec_dict.keys():
-                        #     coarse_y = x_rec_dict['y_coarse'][i][0].cpu().detach().numpy()
-                        #     masked_x = x_rec_dict['masked'][i][0].cpu().detach().numpy()
-                        #     x_coarse_res = x_rec_dict['residual'][i][0]
-                        #     saliency_coarse = x_rec_dict['saliency'][i][0]
-                        #     elements = [x_, coarse_y, x_coarse_res, saliency_coarse, masked_x, x_rec_, x_, np.abs(x_rec_ - x_), x_res_orig, saliency, x_res]
-                        #     v_maxs = [1, 1, 0.5, 0.5, 1, 1, 1, 0.5, 0.5, 0.5, 0.25]  # , 0.99, 0.25]
-                        #     titles = ['Input', 'CR', 'CRes', 'CSAl', 'Masked', 'Rec','Input', str(np.max(np.abs(x_rec_ - x_))), str(np.max(x_res_orig)), str(np.max(saliency)), str(res_pred)]
-
-                        if 'embeddings' in x_rec_dict.keys():
-                            coarse_y = x_rec_dict['y_coarse'][i][0].cpu().detach().numpy()
-                            masked_x = x_rec_dict['masked'][i][0].cpu().detach().numpy()
-                            x_coarse_res = x_rec_dict['residual'][i][0]
-                            saliency_coarse = x_rec_dict['saliency'][i][0]
-                            elements = [x_, coarse_y, x_coarse_res, saliency_coarse, masked_x, x_rec_, x_,
-                                        x_res_orig, x_res_orig * x_coarse_res, saliency_i, saliency_i * saliency_coarse,
-                                        x_res_i]
-                            v_maxs = [1, 1, np.max(x_coarse_res), np.max(saliency_coarse), 1, 1, 1, np.max(x_res_orig),
-                                      np.max(x_res_orig * x_coarse_res), np.max(saliency_i), np.max(saliency_i * saliency_coarse), np.max(x_res_i)]
-                            titles = ['Input', 'C_Rec', str(np.max(x_coarse_res)), str(np.max(saliency_coarse)), 'Masked', 'Rec', 'Input',
-                                      str(np.round(np.max(x_res_orig), 3)), str(np.round(np.max(x_res_orig * x_coarse_res), 3)),
-                                      str(np.round(np.max(saliency_i), 3)), str(np.round(np.max(saliency_i*saliency_coarse), 3)),
-                                      str(np.round(np.max(x_res_i), 3)) + '/' + str(np.round(np.sum(x_res_i), 3))]
-
+                test_total += b
+                x_ = x_rec_dict['x_prior']
+                deformation = x_rec_dict['deformation']
+                loss_rec = self.criterion_rec(x_, x)
+                loss_mse = self.criterion_MSE(x_rec, x)
+                self.criterion_PL = MedicalNetPerceptualSimilarity(device=device)
+                loss_pl = self.criterion_PL(x_, x)
+                loss_mse_array= np.append(loss_mse_array,loss_mse.detach().cpu().numpy())
+                metrics[task + '_loss_rec'] += loss_rec.item() * x.size(0)
+                metrics[task + '_loss_mse'] += loss_mse.item() * x.size(0)
+                metrics[task + '_loss_pl'] += loss_pl.item() * x.size(0)
+                if idx<=20:
+                    if len(x.shape)==4:
+                        global_prior = x_.detach().cpu()[0].numpy()
+                        # global_prior[0, 0], global_prior[0, 1] = 0, 1
+                        rec = x_rec.detach().cpu()[0].numpy()
+                        # rec[0, 0], rec[0, 1] = 0, 1
+                        img = x.detach().cpu()[0].numpy()
+                        # img[0, 0], img[0, 1] = 0, 1
+                        # grid_image = np.hstack([img, global_prior, rec])
+                        deff = deformation.detach().cpu()[0].numpy()
+                        # img[0, 0], img[0, 1] = 0, 1
+                        # grid_image = np.hstack([img, global_prior, rec])
+                        elements = [img, global_prior, rec, np.abs(global_prior-img), np.abs(rec-img),deff]
                         diffp, axarr = plt.subplots(1, len(elements), gridspec_kw={'wspace': 0, 'hspace': 0})
                         diffp.set_size_inches(len(elements) * 4, 4)
-                        for idx_arr in range(len(axarr)):
-                            axarr[idx_arr].axis('off')
-                            v_max = v_maxs[idx_arr]
-                            c_map = 'gray' if v_max == 1 else 'jet'
-                            axarr[idx_arr].imshow(np.squeeze(elements[idx_arr]), vmin=0, vmax=v_max, cmap=c_map)
-                            axarr[idx_arr].set_title(titles[idx_arr])
+                        for i in range(len(axarr)):
+                            axarr[i].axis('off')
+                            if i!=len(axarr)-1:
+                                v_max = 1 if i < np.floor(((len(elements)-1) / 2)) + 1 else 0.5
+                                c_map = 'gray' if i < np.floor(((len(elements)-1) / 2)) + 1 else 'inferno'               
+                                axarr[i].imshow(np.squeeze(elements[i].transpose(1, 2, 0)), vmin=0, vmax=v_max, cmap=c_map)
+                            else:
+                                plot_warped_grid(ax=axarr[i],disp=deff)
+                    else:
+                        global_prior = x_.detach().cpu()[0].numpy()
+                        # global_prior[0, 0], global_prior[0, 1] = 0, 1
+                        rec = x_rec.detach().cpu()[0].numpy()
+                        # rec[0, 0], rec[0, 1] = 0, 1
+                        img = x.detach().cpu()[0].numpy()
+                        # img[0, 0], img[0, 1] = 0, 1
+                        # grid_image = np.hstack([img, global_prior, rec])
+                        deff = deformation[0,:,:,:,:].detach().cpu().numpy()
+                        # print(f'rec: {np.min(rec)}, {np.max(rec)}')
+                        elements = [img,global_prior, rec,np.abs(global_prior-img),np.abs(rec - img),deff]
+                        v_maxs = [1, 1, 1,0.5,0.5,0.5]
+                        diffp, axarr = plt.subplots(3, len(elements), gridspec_kw={'wspace': 0, 'hspace': 0})
+                        diffp.set_size_inches(len(elements) * 4, 3 * 4)
+                        for i in range(len(elements)):
+                            for axis in range(3):
+                                if i!=len(elements)-1:
+                                    axarr[axis, i].axis('off')
+                                    v_max = v_maxs[i]
+                                    c_map = 'gray' if v_max == 1 else 'plasma'
+                                    # print(elements[i].shape)
+                                    if axis == 0:
+                                        el = np.squeeze(elements[i])[int(w / 2), :, :]
+                                    elif axis == 1:
+                                        el = np.squeeze(elements[i])[:, int(w / 2), :]
+                                    else:
+                                        el = np.squeeze(elements[i])[:, :, int(w / 2)]
 
-                            wandb.log({'Anomaly/Example_' + dataset_key + '_' + str(count): [
-                                wandb.Image(diffp, caption="Sample_" + str(count))]})
+                                    axarr[axis, i].imshow(np.squeeze(el).T, vmin=0, vmax=v_max, cmap=c_map, origin='lower')
+                                else:
+                                
+                                    if axis == 0:
+                                        plot_warped_grid(ax=axarr[axis, i],disp=np.concatenate((np.squeeze(elements[i])[np.newaxis,1, int(w / 2),:,:], np.squeeze(elements[i])[np.newaxis,2, int(w / 2),:,:]), 0))
+                                    elif axis == 1:
+                                        plot_warped_grid(ax=axarr[axis, i],disp=np.concatenate((np.squeeze(elements[i])[np.newaxis,0, :, int(w / 2),:], np.squeeze(elements[i])[np.newaxis,2, :, int(w / 2),:]), 0))
+                                    else:
+                                        plot_warped_grid(ax=axarr[axis, i],disp=np.concatenate((np.squeeze(elements[i])[np.newaxis,0, :,:, int(w / 2)], np.squeeze(elements[i])[np.newaxis,1, :,:, int(w / 2)]), 0))
+                    wandb.log({task + '/Example_': [
+                            wandb.Image(diffp, caption="Test_" + str(idx))]})
 
-            pred_dict[dataset_key] = (pred_, label_)
+        fig, ax = plt.subplots()
+        ax.hist(loss_mse_array, bins=len(loss_mse_array)) 
+        wandb.log({"Test_Alzheimer_histogram": fig})
+        for metric_key in metrics.keys():
+            metric_name = task + '/' + str(metric_key)
+            metric_score = metrics[metric_key] / test_total
+            wandb.log({metric_name: metric_score, '_step_': idx})
 
-            for metric in test_metrics:
-                logging.info('{} mean: {} +/- {}'.format(metric, np.nanmean(test_metrics[metric]),
-                                                         np.nanstd(test_metrics[metric])))
-                metrics[metric].append(test_metrics[metric])
+        # if self.compute_scores:
+        #     normal_key = 'Normal'
+        #     for key in pred_dict.keys():
+        #         if 'Normal' in key:
+        #             normal_key = key
+        #             break
+        #     pred_cxr, label_cxr = pred_dict[normal_key]
+        #     for dataset_key in self.test_data_dict.keys():
+        #         print(f'Running evaluation for {dataset_key}')
+        #         if dataset_key == normal_key:
+        #             continue
+        #         pred_ood, label_ood = pred_dict[dataset_key]
+        #         predictions = np.asarray(pred_cxr + pred_ood)
+        #         labels = np.asarray(label_cxr + label_ood)
+        #         print('Negative Classes: {}'.format(len(np.argwhere(labels == 0))))
+        #         print('Positive Classes: {}'.format(len(np.argwhere(labels == 1))))
+        #         print('total Classes: {}'.format(len(labels)))
+        #         print('Shapes {} {} '.format(labels.shape, predictions.shape))
 
-        if self.compute_scores:
-            normal_key = 'Normal'
-            for key in pred_dict.keys():
-                if 'Normal' in key:
-                    normal_key = key
-                    break
-            pred_cxr, label_cxr = pred_dict[normal_key]
-            for dataset_key in self.test_data_dict.keys():
-                print(f'Running evaluation for {dataset_key}')
-                if dataset_key == normal_key:
-                    continue
-                pred_ood, label_ood = pred_dict[dataset_key]
-                predictions = np.asarray(pred_cxr + pred_ood)
-                labels = np.asarray(label_cxr + label_ood)
-                print('Negative Classes: {}'.format(len(np.argwhere(labels == 0))))
-                print('Positive Classes: {}'.format(len(np.argwhere(labels == 1))))
-                print('total Classes: {}'.format(len(labels)))
-                print('Shapes {} {} '.format(labels.shape, predictions.shape))
+        #         auprc = average_precision_score(labels, predictions)
+        #         print('[ {} ]: AUPRC: {}'.format(dataset_key, auprc))
+        #         auroc = roc_auc_score(labels, predictions)
+        #         print('[ {} ]: AUROC: {}'.format(dataset_key, auroc))
 
-                auprc = average_precision_score(labels, predictions)
-                print('[ {} ]: AUPRC: {}'.format(dataset_key, auprc))
-                auroc = roc_auc_score(labels, predictions)
-                print('[ {} ]: AUROC: {}'.format(dataset_key, auroc))
+        #         fpr, tpr, ths = roc_curve(labels, predictions)
+        #         th_95 = np.squeeze(np.argwhere(tpr >= 0.95)[0])
+        #         th_99 = np.squeeze(np.argwhere(tpr >= 0.99)[0])
+        #         fpr95 = fpr[th_95]
+        #         fpr99 = fpr[th_99]
+        #         print('[ {} ]: FPR95: {} at th: {}'.format(dataset_key, fpr95, ths[th_95]))
+        #         print('[ {} ]: FPR99: {} at th: {}'.format(dataset_key, fpr99, ths[th_99]))
+        # logging.info('Writing plots...')
 
-                fpr, tpr, ths = roc_curve(labels, predictions)
-                th_95 = np.squeeze(np.argwhere(tpr >= 0.95)[0])
-                th_99 = np.squeeze(np.argwhere(tpr >= 0.99)[0])
-                fpr95 = fpr[th_95]
-                fpr99 = fpr[th_99]
-                print('[ {} ]: FPR95: {} at th: {}'.format(dataset_key, fpr95, ths[th_95]))
-                print('[ {} ]: FPR99: {} at th: {}'.format(dataset_key, fpr99, ths[th_99]))
-        logging.info('Writing plots...')
+        # for metric in metrics:
+        #     fig_bp = go.Figure()
+        #     x = []
+        #     y = []
+        #     for idx, dataset_values in enumerate(metrics[metric]):
+        #         dataset_name = list(self.test_data_dict)[idx]
+        #         for dataset_val in dataset_values:
+        #             y.append(dataset_val)
+        #             x.append(dataset_name)
 
-        for metric in metrics:
-            fig_bp = go.Figure()
-            x = []
-            y = []
-            for idx, dataset_values in enumerate(metrics[metric]):
-                dataset_name = list(self.test_data_dict)[idx]
-                for dataset_val in dataset_values:
-                    y.append(dataset_val)
-                    x.append(dataset_name)
+        #     fig_bp.add_trace(go.Box(
+        #         y=y,
+        #         x=x,
+        #         name=metric,
+        #         boxmean='sd'
+        #     ))
+        #     title = 'score'
+        #     fig_bp.update_layout(
+        #         yaxis_title=title,
+        #         boxmode='group',  # group together boxes of the different traces for each value of x
+        #         yaxis=dict(range=[0, 1]),
+        #     )
+        #     fig_bp.update_yaxes(range=[0, 1], title_text='score', tick0=0, dtick=0.1, showgrid=False)
 
-            fig_bp.add_trace(go.Box(
-                y=y,
-                x=x,
-                name=metric,
-                boxmean='sd'
-            ))
-            title = 'score'
-            fig_bp.update_layout(
-                yaxis_title=title,
-                boxmode='group',  # group together boxes of the different traces for each value of x
-                yaxis=dict(range=[0, 1]),
-            )
-            fig_bp.update_yaxes(range=[0, 1], title_text='score', tick0=0, dtick=0.1, showgrid=False)
-
-            wandb.log({"Reconstruction_Metrics(Healthy)_" + self.name + '_' + str(metric): fig_bp})
+        #     wandb.log({"Reconstruction_Metrics(Healthy)_" + self.name + '_' + str(metric): fig_bp})
 
     def pathology_localization(self, global_model):
         """

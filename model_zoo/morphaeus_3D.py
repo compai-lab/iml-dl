@@ -50,7 +50,7 @@ class MorphAEus(nn.Module):
             else:
                 enc_x = enc_layer(enc_x)
             if isinstance(enc_layer, nn.Conv3d):
-                if enc_x.shape[-1] != 16:
+                if enc_x.shape[-1] != 4:
                     encode_history.insert(0, enc_x)
         for i_d, dec_layer in enumerate(self.decoder):
             if i_d == 0:

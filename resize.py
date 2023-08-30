@@ -20,7 +20,7 @@ default_t = transforms.Compose([#ReadImage()#, Norm98(),
                                         # ,transforms.ToTensor()
                                         ])
 listt=[]
-path="/home/yigit/iml-dl/data/ADNI/AD_Siem_3T_WW"
+path="/home/yigit/iml-dl/data/ADNI/CN_Siem_3T_WM"
 for root, dirs, files in os.walk(path):
     for name in files:
         if name.startswith("ADNI") and name.endswith(("_skullfree_Warped.nii.gz")):

@@ -1,4 +1,4 @@
-name: MorphAEus_alfa_0.2_beta_0.0_window_9
+name: MorphAEus_alfa_0.0_beta_0.1
 target_size: &target_size !!python/tuple [128, 128]
 dbatch_size: &dbatch_size 1
 checkpoint_path: &checkpoint_path ./weights/fast_mri/sota/
@@ -6,7 +6,7 @@ checkpoint_path: &checkpoint_path ./weights/fast_mri/sota/
 # Experiment
 #
 experiment:
-  name: Morphaeus_2D_IXI_FastMRI_Deformer
+  name: Morphaeus_2D_ADNI_Trials
   task: train
   weights: #'weights/fast_mri/sota/2023_05_22_19_41_58_326024/latest_model.pt'
 #
@@ -58,15 +58,15 @@ trainer:
   params:
     input_size: *target_size
     checkpoint_path: *checkpoint_path
-    nr_epochs: 600
-    max_iter: 1500
+    nr_epochs: 250
+    max_iter: 200
     loss:
       module_name: optim.losses.ln_losses
       class_name: L2
       params:
-    patience: 100
-    alfa: 0.2
-    beta: 0
+    patience: 40
+    alfa: 0.0
+    beta: 0.1
     ncc_window_size: 9
     # Optimizer
     # Optimizer
@@ -86,13 +86,14 @@ trainer:
         data_dir:
           train:
          # - './data/ADNI/adni_female_healthy_2D.csv'
-           - './data/ADNI/cn_siem_3T_ww_train_registered.csv'
+           - './data/ADNI/cn_siem_3T_ww_train_registered_png.csv'
           val:
          # - './data/ADNI/adni_female_AD_2D.csv'
-          - './data/ADNI/cn_siem_3T_ww_val_registered.csv'
+          - './data/ADNI/cn_siem_3T_ww_val_registered_png.csv'
           test:
          # - './data/ADNI/adni_female_AD_2D.csv'
-          - './data/ADNI/cn_siem_3T_ww_test_registered.csv'
+          - './data/ADNI/cn_siem_3T_ww_test_registered_png.csv'
+          # - './data/ADNI/AD_Siem_3T_WW_png.csv'
         target_size: *target_size
 #        batch_size: 128 # Orig
         batch_size: 8
@@ -117,7 +118,7 @@ downstream_tasks:
           global_detection:
             data_dir:
               test:
-                - './data/ADNI/AD_Siem_3T_WW.csv'
+                - './data/ADNI/AD_Siem_3T_WW_png.csv'
 #
 # downstream_tasks:
 #   detection:

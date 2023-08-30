@@ -24,7 +24,7 @@ class PTrainer(Trainer):
         self.gamma = training_params['gamma'] if 'gamma' in training_params.keys() else 1
 
         self.max_iter = training_params['max_iter'] if 'max_iter' in training_params.keys() else 500
-        self.criterion_PL = PerceptualLoss(device=device)
+      #  self.criterion_PL = PerceptualLoss(device=device)
         self.adv_loss=PatchAdversarialLoss(criterion="least_squares")
 
     def train(self, model_state=None, opt_state=None, start_epoch=0):
@@ -39,19 +39,19 @@ class PTrainer(Trainer):
         :return:
             self.model.state_dict():
         """
-        # discriminator = PatchDiscriminator(
-        #     spatial_dims=3,
-        #     num_layers_d=3,
-        #     num_channels=32,
-        #     in_channels=1,
-        #     out_channels=1,
-        #     kernel_size=4,
-        #     activation=(Act.LEAKYRELU, {"negative_slope": 0.2}),
-        #     norm="BATCH",
-        #     bias=False,
-        #     padding=1,
-        # )
-        # discriminator.to(self.device)
+        discriminator = PatchDiscriminator(
+            spatial_dims=3,
+            num_layers_d=3,
+            num_channels=32,
+            in_channels=1,
+            out_channels=1,
+            kernel_size=4,
+            activation=(Act.LEAKYRELU, {"negative_slope": 0.2}),
+            norm="BATCH",
+            bias=False,
+            padding=1,
+        )
+        discriminator.to(self.device)
 
         if model_state is not None:
             self.model.load_state_dict(model_state)
@@ -67,7 +67,7 @@ class PTrainer(Trainer):
         epoch_adv_losses = []
 
         self.early_stop = False
-       # optimizer_d = torch.optim.Adam(discriminator.parameters(), lr=5e-4)
+        optimizer_d = torch.optim.Adam(discriminator.parameters(), lr=5e-4)
 
         for epoch in range(self.training_params['nr_epochs']):
             if start_epoch > epoch:
@@ -78,22 +78,10 @@ class PTrainer(Trainer):
             start_time = time()
             batch_adv_loss,batch_disc_loss,batch_loss, batch_loss_pl,batch_loss_after_deformation, batch_loss_pl_after_deformation,batch_loss_reg, batch_loss_deform, count_images = 0.0,0.0,0.0,0.0,0.0, 0.0, 0.0, 0.0, 0
             self.beta = np.clip(self.beta_max * (epoch / self.max_iter), 1e-3, self.beta_max)
-           # discriminator.train()
+            discriminator.train()
             for data in self.train_ds:
                
-                # # Input
-                # jitter = transforms.Compose(
-                #                         [ transforms.ColorJitter(brightness=(0.8, 1.2), contrast=(0.8,1.2)),]
-                #                         )
-                # for k in range(0,128):
 
-                #     jittered_img = jitter((data[0][:,:,k,:,:].squeeze()[np.newaxis,:,:]))
-                #     if k==0:
-                #      jittered_all=  jittered_img 
-                #      jittered_all=jittered_all[:,np.newaxis,:,:]
-                #     else:
-                #       jittered_all=  torch.cat((jittered_all,jittered_img[:,np.newaxis,:,:]),axis=1)
-                # jittered_all=jittered_all[:,np.newaxis,:,:,:]      
 
                 images = data[0].to(self.device)
                 transformed_images = self.transform(images) if self.transform is not None else images
@@ -102,88 +90,87 @@ class PTrainer(Trainer):
                 count_images += b
                 # Forward Pass
                 reconstruction, result_dict = self.model(transformed_images, registration=False)
-              #  result_dict = self.model(transformed_images, registration=False)
-             #   logits_fake = discriminator(reconstruction.contiguous().float())[-1]
+                logits_fake = discriminator(reconstruction.contiguous().float())[-1]
 
                 global_prior = result_dict['x_prior']
                 reversed_img = result_dict['x_reversed']
                 deformation = result_dict['deformation']
                 # Losses
                 loss_rec = self.criterion_rec(global_prior, images, result_dict)
-                loss_pl = self.criterion_PL(global_prior, images).mean()
+                #loss_pl = self.criterion_PL(global_prior, images).mean()
                 loss_rec_after_deformation = self.criterion_rec(reconstruction, images, result_dict)
-                loss_pl_after_deformation = self.criterion_PL(reconstruction, images).mean()
+              #  loss_pl_after_deformation = self.criterion_PL(reconstruction, images).mean()
                 reg_deform = self.deform_R(deformation)
                 loss_deform = self.ncc_loss(images, reconstruction) if torch.equal(reconstruction, reversed_img) \
                     else (self.ncc_loss(images, reconstruction) + self.ncc_loss(global_prior, reversed_img))/2
-             #   loss_adv=self.adv_loss(logits_fake, target_is_real=True, for_discriminator=False)
+                loss_adv=self.adv_loss(logits_fake, target_is_real=True, for_discriminator=False)
 
-                loss = loss_rec + self.alfa * loss_pl# + self.gamma * loss_adv
+                loss = loss_rec  + self.gamma * loss_adv
                 #loss = loss_rec 
                 if epoch > 10:
-                   loss = loss_rec + self.alfa * loss_pl+ self.delta * loss_deform + self.beta * reg_deform# + self.gamma * loss_adv
+                   loss = loss_rec + self.delta * loss_deform + self.beta * reg_deform + self.gamma * loss_adv
 
                 self.optimizer.zero_grad()
                 # Backward Pass
                 loss.backward()
-                # torch.nn.utils.clip_grad_norm_(self.model.parameters(), 0.25)  # to avoid nan loss
+               # torch.nn.utils.clip_grad_norm_(self.model.parameters(), 0.25)  # to avoid nan loss
                 self.optimizer.step()
                 
-                # Discriminator part
-              #  optimizer_d.zero_grad(set_to_none=True)
+              #  Discriminator part
+                optimizer_d.zero_grad(set_to_none=True)
 
-              #  logits_fake = discriminator(reconstruction.contiguous().detach())[-1]
-               # loss_d_fake = self.adv_loss(logits_fake, target_is_real=False, for_discriminator=True)
-               # logits_real = discriminator(images.contiguous().detach())[-1]
-               # loss_d_real = self.adv_loss(logits_real, target_is_real=True, for_discriminator=True)
-              #  discriminator_loss = (loss_d_fake + loss_d_real) * 0.5
+                logits_fake = discriminator(reconstruction.contiguous().detach())[-1]
+                loss_d_fake = self.adv_loss(logits_fake, target_is_real=False, for_discriminator=True)
+                logits_real = discriminator(images.contiguous().detach())[-1]
+                loss_d_real = self.adv_loss(logits_real, target_is_real=True, for_discriminator=True)
+                discriminator_loss = (loss_d_fake + loss_d_real) * 0.5
 
-              #  loss_d = self.gamma * discriminator_loss
-              #  loss_d.backward()
-                # torch.nn.utils.clip_grad_norm_(self.model.parameters(), 0.25)  # to avoid nan loss
-             #   optimizer_d.step()
+                loss_d = self.gamma * discriminator_loss
+                loss_d.backward()
+                #  torch.nn.utils.clip_grad_norm_(self.model.parameters(), 0.25)  # to avoid nan loss
+                optimizer_d.step()
 
                 batch_loss += loss_rec.item() * images.size(0)
-                batch_loss_pl += loss_pl.item() * images.size(0)
+               # batch_loss_pl += loss_pl.item() * images.size(0)
                 batch_loss_after_deformation += loss_rec_after_deformation.item() * images.size(0)
-                batch_loss_pl_after_deformation += loss_pl_after_deformation.item() * images.size(0)
+              # batch_loss_pl_after_deformation += loss_pl_after_deformation.item() * images.size(0)
                 batch_loss_reg += reg_deform.item() * images.size(0)
                 batch_loss_deform += loss_deform.item() * images.size(0)
-             #   batch_adv_loss += loss_adv.item() * images.size(0)
-              #  batch_disc_loss += loss_d.item() * images.size(0)
-           #     print("Train " +str(loss_pl))
-             #   print("Train " +str(batch_loss_pl))
+                batch_adv_loss += loss_adv.item() * images.size(0)
+                batch_disc_loss += loss_d.item() * images.size(0)
+              #  print("Train " +str(loss_pl))
+              #  print("Train " +str(batch_loss_pl))
              #   print(str(count_images))
             torch.cuda.empty_cache()
             epoch_loss = (batch_loss) / count_images if count_images > 0 else batch_loss
-            epoch_loss_pl =( batch_loss_pl) / count_images if count_images > 0 else batch_loss_pl
+           # epoch_loss_pl =( batch_loss_pl) / count_images if count_images > 0 else batch_loss_pl
             epoch_loss_after_deformation =( batch_loss_after_deformation) / count_images if count_images > 0 else batch_loss
-            epoch_loss_pl_after_deformation =( batch_loss_pl_after_deformation)/ count_images if count_images > 0 else batch_loss_pl
+           # epoch_loss_pl_after_deformation =( batch_loss_pl_after_deformation)/ count_images if count_images > 0 else batch_loss_pl
             epoch_loss_reg = (batch_loss_reg) / count_images if count_images > 0 else batch_loss_reg
             epoch_loss_deformation = (batch_loss_deform) / count_images if count_images > 0 else batch_loss_deform
-         #   epoch_adv_loss = (batch_adv_loss) / count_images if count_images > 0 else batch_adv_loss
-           # epoch_disc_loss = (batch_disc_loss) / count_images if count_images > 0 else batch_disc_loss
+            epoch_adv_loss = (batch_adv_loss) / count_images if count_images > 0 else batch_adv_loss
+            epoch_disc_loss = (batch_disc_loss) / count_images if count_images > 0 else batch_disc_loss
 
             epoch_losses.append(epoch_loss)
-            epoch_losses_pl.append(epoch_loss_pl)
+          #  epoch_losses_pl.append(epoch_loss_pl)
             epoch_losses_after_deformation.append(epoch_loss_after_deformation)
-            epoch_losses_pl_after_deformation.append(epoch_loss_pl_after_deformation)
+          # epoch_losses_pl_after_deformation.append(epoch_loss_pl_after_deformation)
             epoch_losses_reg.append(epoch_loss_reg)
             epoch_losses_deformation.append(epoch_loss_deformation)           
-          #  epoch_disc_losses.append(epoch_disc_loss)
-          #  epoch_adv_losses.append(epoch_adv_loss)
+            epoch_disc_losses.append(epoch_disc_loss)
+            epoch_adv_losses.append(epoch_adv_loss)
 
             end_time = time()
             print('Epoch: {} \tTraining Loss: {:.6f} , computed in {} seconds for {} samples'.format(
                 epoch, epoch_loss, end_time - start_time, count_images))
             wandb.log({"Train/Loss_": epoch_loss, '_step_': epoch})
-            wandb.log({"Train/Loss_PL_": epoch_loss_pl, '_step_': epoch})
+          #  wandb.log({"Train/Loss_PL_": epoch_loss_pl, '_step_': epoch})
             wandb.log({"Train/Loss_After_Deformation": epoch_loss_after_deformation, '_step_': epoch})
-            wandb.log({"Train/Loss_PL_After_Deformation": epoch_loss_pl_after_deformation, '_step_': epoch})
+           # wandb.log({"Train/Loss_PL_After_Deformation": epoch_loss_pl_after_deformation, '_step_': epoch})
             wandb.log({"Train/Loss_Reg_": epoch_loss_reg, '_step_': epoch})
             wandb.log({"Train/Loss_Deformation_": epoch_loss_deformation, '_step_': epoch})
-          #  wandb.log({"Train/Loss_Adv_": epoch_adv_loss, '_step_': epoch})
-          #  wandb.log({"Train/Loss_Discriminator_": epoch_disc_loss, '_step_': epoch})
+            wandb.log({"Train/Loss_Adv_": epoch_adv_loss, '_step_': epoch})
+            wandb.log({"Train/Loss_Discriminator_": epoch_disc_loss, '_step_': epoch})
             # Save latest model
             torch.save({'model_weights': self.model.state_dict(),
                         'optimizer_weights': self.optimizer.state_dict(),
@@ -269,11 +256,11 @@ class PTrainer(Trainer):
 
                 loss_mse = self.criterion_rec(x_rec, x)
           
-                loss_pl = self.criterion_PL(x_, x)
+             #   loss_pl = self.criterion_PL(x_, x)
                 loss_mse_array= np.append(loss_mse_array,loss_mse.detach().cpu().numpy())
                 metrics[task + '_loss_rec'] += loss_rec.item() * x.size(0)
                 metrics[task + '_loss_after_deformation'] += loss_mse.item() * x.size(0)
-                metrics[task + '_loss_pl'] += loss_pl.item() * x.size(0)
+             #   metrics[task + '_loss_pl'] += loss_pl.item() * x.size(0)
                # print("Val " +str(loss_pl))
                # print("val " +str(metrics[task + '_loss_pl']))
                # print(str(test_total))
@@ -325,7 +312,7 @@ class PTrainer(Trainer):
         wandb.log({'lr': self.optimizer.param_groups[0]['lr'], '_step_': epoch})
         wandb.log({'beta': self.beta, '_step_': epoch})
 
-        epoch_val_loss = (metrics[task + '_loss_rec']+self.alfa *  metrics[task + '_loss_pl']) / test_total
+        epoch_val_loss = (metrics[task + '_loss_rec'])/ test_total
         if task == 'Val':
             if epoch_val_loss < self.min_val_loss:
                 self.min_val_loss = epoch_val_loss

@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+from matplotlib import  transforms
 import numpy as np
 import torch
 import umap.umap_ as umap
@@ -76,7 +77,9 @@ def plot_warped_grid(ax, disp, bg_img=None, interval=3, title="$\mathcal{T}_\phi
         new_grid_H = id_grid_H + disp[0, id_grid_H, id_grid_W,id_grid_D]
         new_grid_W = id_grid_W + disp[1, id_grid_H, id_grid_W,id_grid_D]
         new_grid_D = id_grid_D + disp[2, id_grid_H, id_grid_W,id_grid_D]
-    kwargs = {"linewidth": linewidth, "color": color}
+        #new_grid_H=np.rot90(new_grid_H,3)
+        #new_grid_W=np.rot90(new_grid_W,3)
+    kwargs = {"linewidth": linewidth, "color": color }
     # matplotlib.plot() uses CV x-y indexing
     for i in range(new_grid_H.shape[0]):
         ax.plot(new_grid_W[i, :], new_grid_H[i, :], **kwargs)  # each draws a horizontal line
@@ -84,7 +87,7 @@ def plot_warped_grid(ax, disp, bg_img=None, interval=3, title="$\mathcal{T}_\phi
         ax.plot(new_grid_W[:, i], new_grid_H[:, i], **kwargs)  # each draws a vertical line
 
    # ax.set_title(title, fontsize=fontsize)
-    ax.imshow(background, cmap='gray')
+    ax.imshow(np.rot90(background,3), cmap='gray')
     # ax.axis('off')
     ax.grid(False)
     ax.set_xticks([])

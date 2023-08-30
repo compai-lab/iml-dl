@@ -6,7 +6,9 @@ from model_zoo import VGGEncoder
 from torch.nn.modules.loss import _Loss
 from scipy.ndimage.filters import gaussian_filter
 
-
+import torch
+import torch.nn as nn
+from lpips import LPIPS
 class NCC:
     """
     Local (over window) normalized cross correlation loss.
@@ -123,7 +125,60 @@ class DisplacementRegularizer2D(torch.nn.Module):
         else:
             raise Exception('Not recognised local regulariser!')
         return energy
-    
+
+class DisplacementRegularizer(torch.nn.Module):
+    """
+    code from https://github.com/junyuchen245/TransMorph_Transformer_for_Medical_Image_Registration/
+
+    License:
+        MIT License
+    """
+    def __init__(self, energy_type='gradient-l2'):
+        super().__init__()
+        self.energy_type = energy_type
+
+    def gradient_dx(self, fv): return (fv[:, 2:, 1:-1, 1:-1] - fv[:, :-2, 1:-1, 1:-1]) / 2
+
+    def gradient_dy(self, fv): return (fv[:, 1:-1, 2:, 1:-1] - fv[:, 1:-1, :-2, 1:-1]) / 2
+
+    def gradient_dz(self, fv): return (fv[:, 1:-1, 1:-1, 2:] - fv[:, 1:-1, 1:-1, :-2]) / 2
+
+    def gradient_txyz(self, Txyz, fn):
+        return torch.stack([fn(Txyz[:,i,...]) for i in [0, 1, 2]], dim=1)
+
+    def compute_gradient_norm(self, displacement, flag_l1=False):
+        dTdx = self.gradient_txyz(displacement, self.gradient_dx)
+        dTdy = self.gradient_txyz(displacement, self.gradient_dy)
+        dTdz = self.gradient_txyz(displacement, self.gradient_dz)
+        if flag_l1:
+            norms = torch.abs(dTdx) + torch.abs(dTdy) + torch.abs(dTdz)
+        else:
+            norms = dTdx**2 + dTdy**2 + dTdz**2
+        return torch.mean(norms)/3.0
+
+    def compute_bending_energy(self, displacement):
+        dTdx = self.gradient_txyz(displacement, self.gradient_dx)
+        dTdy = self.gradient_txyz(displacement, self.gradient_dy)
+        dTdz = self.gradient_txyz(displacement, self.gradient_dz)
+        dTdxx = self.gradient_txyz(dTdx, self.gradient_dx)
+        dTdyy = self.gradient_txyz(dTdy, self.gradient_dy)
+        dTdzz = self.gradient_txyz(dTdz, self.gradient_dz)
+        dTdxy = self.gradient_txyz(dTdx, self.gradient_dy)
+        dTdyz = self.gradient_txyz(dTdy, self.gradient_dz)
+        dTdxz = self.gradient_txyz(dTdx, self.gradient_dz)
+        return torch.mean(dTdxx**2 + dTdyy**2 + dTdzz**2 + 2*dTdxy**2 + 2*dTdxz**2 + 2*dTdyz**2)
+
+    def forward(self, disp):
+        if self.energy_type == 'bending':
+            energy = self.compute_bending_energy(disp)
+        elif self.energy_type == 'gradient-l2':
+            energy = self.compute_gradient_norm(disp)
+        elif self.energy_type == 'gradient-l1':
+            energy = self.compute_gradient_norm(disp, flag_l1=True)
+        else:
+            raise Exception('Not recognised local regulariser!')
+        return energy
+        
 class MedicalNetPerceptualSimilarity(_Loss):
     """
     Component to perform the perceptual evaluation with the networks pretrained by Chen, et al. "Med3D: Transfer
@@ -186,6 +241,77 @@ def medicalnet_intensity_normalisation(volume):
     std = volume.std()
     return (volume - mean) / std
 
+class RadImageNetPerceptualSimilarity(nn.Module):
+    """
+    Component to perform the perceptual evaluation with the networks pretrained on RadImagenet (pretrained by Mei, et
+    al. "RadImageNet: An Open Radiologic Deep Learning Research Dataset for Effective Transfer Learning"). This class
+    uses torch Hub to download the networks from "Warvito/radimagenet-models".
+
+    Args:
+        net: {``"radimagenet_resnet50"``}
+            Specifies the network architecture to use. Defaults to ``"radimagenet_resnet50"``.
+        verbose: if false, mute messages from torch Hub load function.
+    """
+
+    def __init__(self, net: str = "radimagenet_resnet50", verbose: bool = False,device='cuda') -> None:
+        super().__init__()
+        self.model = torch.hub.load("Warvito/radimagenet-models", model=net, verbose=verbose)
+        self.eval().to(device)
+
+        for param in self.parameters():
+            param.requires_grad = False
+
+    def forward(self, input: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        """
+        We expect that the input is normalised between [0, 1]. Given the preprocessing performed during the training at
+        https://github.com/BMEII-AI/RadImageNet, we make sure that the input and target have 3 channels, reorder it from
+         'RGB' to 'BGR', and then remove the mean components of each input data channel. The outputs are normalised
+        across the channels, and we obtain the mean from the spatial dimensions (similar approach to the lpips package).
+        """
+        # If input has just 1 channel, repeat channel to have 3 channels
+        results=0
+        for k in range(0,input.shape[2]-2,3):
+           # print(k,input.shape[2])
+            input_2d=input[:,:,k:k+3,:,:].squeeze()
+            target_2d=target[:,:,k:k+3,:,:].squeeze()
+            input_2d=input_2d[np.newaxis,:,:,:]
+            target_2d=target_2d[np.newaxis,:,:,:]
+            # Subtract mean used during training
+         #  input_2d = subtract_mean(input_2d)
+          #  target_2d = subtract_mean(target_2d)
+
+            # Get model outputs
+            outs_input = self.model.forward(input_2d)
+            outs_target = self.model.forward(target_2d)
+
+            # Normalise through the channels
+            feats_input = normalize_tensor(outs_input)
+            feats_target = normalize_tensor(outs_target)
+
+            results_curr = (feats_input - feats_target) ** 2
+            results =results+ spatial_average(results_curr.sum(dim=1, keepdim=True), keepdim=True)
+
+        return results
+
+def spatial_average(x: torch.Tensor, keepdim: bool = True) -> torch.Tensor:
+    return x.mean([2, 3], keepdim=keepdim)
+
+
+def torchvision_zscore_norm(x: torch.Tensor) -> torch.Tensor:
+    mean = [0.485, 0.456, 0.406]
+    std = [0.229, 0.224, 0.225]
+    x[:, 0, :, :] = (x[:, 0, :, :] - mean[0]) / std[0]
+    x[:, 1, :, :] = (x[:, 1, :, :] - mean[1]) / std[1]
+    x[:, 2, :, :] = (x[:, 2, :, :] - mean[2]) / std[2]
+    return x
+
+
+def subtract_mean(x: torch.Tensor) -> torch.Tensor:
+    mean = [0.406, 0.456, 0.485]
+    x[ 0, :, :] -= mean[0]
+    x[ 1, :, :] -= mean[1]
+    x[ 2, :, :] -= mean[2]
+    return x
 class PerceptualLoss(_Loss):
     """
     """
@@ -215,14 +341,30 @@ class PerceptualLoss(_Loss):
             target (N,*),
                 same shape as input.
         """
-        input_features = self.loss_network(input.repeat(1, 3, 1, 1)) if input.shape[1] == 1 else input
-        output_features = self.loss_network(target.repeat(1, 3, 1, 1)) if target.shape[1] == 1 else target
+        if len(input.shape)==4:
 
-        loss_pl = 0
-        for output_feature, input_feature in zip(output_features, input_features):
-            loss_pl += F.mse_loss(output_feature, input_feature)
-        return loss_pl
+            input_features = self.loss_network(input.repeat(1, 3, 1, 1)) if input.shape[1] == 1 else input
+            output_features = self.loss_network(target.repeat(1, 3, 1, 1)) if target.shape[1] == 1 else target
 
+            loss_pl = 0
+            for output_feature, input_feature in zip(output_features, input_features):
+                loss_pl += F.mse_loss(output_feature, input_feature)
+            return loss_pl
+        else:
+            loss_pl = 0
+            for k in range(0,input.shape[2],16):
+                input_2d=input[:,:,k:k+16,:,:].squeeze()
+                target_2d=target[:,:,k:k+16,:,:].squeeze()
+                input_2d=input_2d[:,np.newaxis,:,:]   
+                target_2d=target_2d[:,np.newaxis,:,:]         
+                input_features = self.loss_network(input_2d.repeat(1, 3, 1, 1)) if input.shape[1] == 1 else input
+                output_features = self.loss_network(target_2d.repeat(1, 3, 1, 1)) if target.shape[1] == 1 else target
+
+
+                for output_feature, input_feature in zip(output_features, input_features):
+                    for l in range(0,16):
+                        loss_pl += F.mse_loss(output_feature[l,:,:,:], input_feature[l,:,:,:]) 
+            return loss_pl/input.shape[2]
 
 class CosineSimLoss():
     """

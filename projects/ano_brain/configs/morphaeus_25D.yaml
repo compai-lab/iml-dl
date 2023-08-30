@@ -42,7 +42,7 @@ model:
     kernel_size: 3
     norm: batch
     act: swish
-    deconv_mode: stride
+    deconv_mode: transpose
 #
 # Trainer
 #
