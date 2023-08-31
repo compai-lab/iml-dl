@@ -263,5 +263,5 @@ class SSIM:
             self.loss_ = merlinth.losses.SSIM(channel=1)
 
     def __call__(self, gt, pred):
-        return (self.loss_(torch.real(gt), torch.real(pred)) +
-                self.loss_(torch.imag(gt), torch.imag(pred)))
+        return (1 - self.loss_(torch.real(gt), torch.real(pred)) +
+                1 - self.loss_(torch.imag(gt), torch.imag(pred)))
