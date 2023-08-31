@@ -2,6 +2,7 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 import math
+import merlinth
 from model_zoo import VGGEncoder
 from torch.nn.modules.loss import _Loss
 from scipy.ndimage.filters import gaussian_filter
@@ -251,3 +252,16 @@ class EmbeddingLoss(torch.nn.Module):
                                                          student_feature.view(student_feature.shape[0], -1)))
             layer_id += 1
         return total_loss
+
+
+class SSIM:
+    def __init__(self, select_echo):
+        super(SSIM, self).__init__()
+        if not select_echo:
+            self.loss_ = merlinth.losses.SSIM(channel=12)
+        else:
+            self.loss_ = merlinth.losses.SSIM(channel=1)
+
+    def __call__(self, gt, pred):
+        return (self.loss_(torch.real(gt), torch.real(pred)) +
+                self.loss_(torch.imag(gt), torch.imag(pred)))
