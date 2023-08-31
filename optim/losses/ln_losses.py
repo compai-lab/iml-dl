@@ -33,7 +33,7 @@ class MSE:
 
 class MagnPhaseL2:
     def __init__(self):
-        super(SeparateL2, self).__init__()
+        super(MagnPhaseL2, self).__init__()
         self.loss_ = MSELoss()
 
     def __call__(self, gt, pred):

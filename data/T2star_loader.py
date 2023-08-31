@@ -1,3 +1,4 @@
+import os.path
 import pathlib
 import torch
 from torch.utils.data import DataLoader, Dataset
@@ -79,10 +80,16 @@ class RawT2starDataset(Dataset):
                     sens_maps = np.pad(sens_maps, pad_width, mode='constant')
                     sens_maps = np.nan_to_num(sens_maps / rss(sens_maps, 1))
 
+                    # fully sampled coil combined reconstructions:
+                    coil_imgs_fs = ifft2c(kspace)
+                    coil_imgs_fs = np.roll(coil_imgs_fs, shift=y_shift, axis=-2)
+                    img_cc_fs = np.sum(coil_imgs_fs * np.conj(sens_maps), axis=1)
+
                     new_samples.append(T2StarRawDataSample(filename,
                                                            dataslice,
                                                            kspace,
                                                            sens_maps,
+                                                           img_cc_fs,
                                                            y_shift))
 
             self.raw_samples += new_samples
@@ -104,7 +111,7 @@ class RawT2starDataset(Dataset):
 
     def __getitem__(self, idx):
         #filename, dataslice = self.raw_samples[idx]
-        filename, dataslice, kspace, sens_maps, y_shift = self.raw_samples[idx]
+        filename, dataslice, kspace, sens_maps, img_cc_fs, y_shift = self.raw_samples[idx]
 
         # undersample with a random mask:
         nc, ne, npe, nfe = kspace.shape
@@ -120,10 +127,7 @@ class RawT2starDataset(Dataset):
         mask = mask.reshape(1, 1, npe, 1).repeat(nc, axis=0).repeat(ne, axis=1).repeat(nfe, axis=3)
         kspace_zf = kspace*mask
 
-        # zero-filled and fully sampled coil combined reconstructions:
-        coil_imgs_fs = ifft2c(kspace)
-        coil_imgs_fs = np.roll(coil_imgs_fs, shift=y_shift, axis=-2)
-        img_cc_fs = np.sum(coil_imgs_fs*np.conj(sens_maps), axis=1)
+        # zero-filled coil combined reconstructions:
         coil_imgs_zf = ifft2c(kspace_zf)
         coil_imgs_zf = np.roll(coil_imgs_zf, shift=y_shift, axis=-2)
         img_cc_zf = np.sum(coil_imgs_zf * np.conj(sens_maps), axis=1)
@@ -134,7 +138,7 @@ class RawT2starDataset(Dataset):
             mask = np.array([mask[self.select_echo]])
 
         if self.normalize == "abs_image":
-            norm = np.nanmax(abs(img_cc_zf)) + 1e-9
+            norm = np.nanmax(abs(img_cc_fs)) + 1e-9
             img_cc_zf /= norm
             img_cc_fs /= norm
 
@@ -228,6 +232,299 @@ class RawT2starLoader(pl.LightningDataModule):
                                    select_echo=self.select_echo,
                                    random_mask=self.random_mask,
                                    overfit_one_sample=self.overfit_one_sample)
+        logging.info(f"Size of the test dataset: {testset.__len__()}.")
+
+        # if testset.__len__() < self.batch_size:
+        #     logging.info('The batch size ({}) is larger than the size of the test set({})! Since the dataloader has '
+        #                  'drop_last enabled, no data will be loaded!'.format(self.batch_size, testset.__len__()))
+
+        dataloader = DataLoader(
+            testset,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+            shuffle=False,
+            drop_last=False,
+            pin_memory=True,
+        )
+        return dataloader
+
+
+class RawMotionT2starDataset(Dataset):
+    """Dataset for loading raw T2* data (motion-corrupted and motion-free)
+
+    Parameters
+    ----------
+    path : str
+        path to folder containing the relevant h5 files
+    only_bm_slices : bool
+        whether slices with percentage of brainmask voxels < bm_thr*100% should
+        be excluded or not
+    bm_thr : float
+        threshold for including / excluding slices based on percentage of
+        brainmask voxels
+    normalize : str
+        whether to normalize the data with maximum absolute value of image
+        ('abs_image')
+    select_echo : bool or int
+        whether to select a specific echo.
+    random mask : bool or list
+        whether to generate a random mask. If yes, then provide a list [R, N]
+        with acceleration rate R and number of central lines N.
+    overfit_one_sample : bool
+        whether only one sample should be loaded to test overfitting
+    """
+
+    def __init__(self, path, only_bm_slices=False, bm_thr=0.1,
+                 normalize="abs_image", select_echo=False,
+                 random_mask=[2, 10], overfit_one_sample=False,
+                 nr_bootstrap_samples=1):
+        super().__init__()
+
+        self.path = path
+        self.raw_samples = []
+        self.only_bm_slices = only_bm_slices
+        self.bm_thr = bm_thr
+        self.normalize = normalize
+        self.overfit_one_sample = overfit_one_sample
+        self.select_echo = select_echo
+        self.random_mask = random_mask
+        self.nr_bootstrap_samples = nr_bootstrap_samples
+
+        files_move = glob.glob(self.path+"**_move**")
+        files_gt = glob.glob(self.path+"**sg_fV4**")
+        if len(files_move) != len(files_gt):
+            logging.info("[RawMotionT2starDataset::ERROR: number of motion-free "
+                         "and motion-corrupted files in {} does not match.".format(self.path))
+
+        for filename_move, filename_gt in zip(sorted(files_move), sorted(files_gt)):
+            slices_ind = self._get_slice_indices(filename_move)
+            new_samples = []
+
+            with h5py.File(filename_move, "r") as f:
+                with h5py.File(filename_gt, "r") as g:
+                    for dataslice in slices_ind:
+                        ### Motion-corrupted data:
+                        raw_data = f['out']['Data'][dataslice, :, 0, 0, :, 0]
+                        tmp = f['out']['Parameter']['YRange'][:]
+                        if len(np.unique(tmp[0])) > 1 or len(np.unique(tmp[1])) > 1:
+                            print('Error: different y shifts for different echoes!')
+                        y_shift = -int((tmp[0, 0] + tmp[1, 0]) / 2)
+                        # y_shift to be used on images (see below)
+
+                        # convert to proper complex data
+                        if isinstance(raw_data, np.ndarray) and raw_data.dtype == [('real', '<f4'), ('imag', '<f4')]:
+                            kspace = raw_data.view(np.complex64).astype(np.complex64)
+                            sens_maps = f['out']['SENSE']['maps'][dataslice, :, 0, 0, :, 0].view(np.complex64).astype(
+                                np.complex64)
+                        else:
+                            print('[RawMotionT2starDataset::ERROR: Unexpected data format for motion data: ',
+                                  raw_data.dtype)
+
+                        # pad coil sensitivity maps to have same shape as images:
+                        pad_width = ((0, 0), (0, 0), (0, 0), (int((kspace.shape[-1] - sens_maps.shape[-1]) / 2),
+                                                              int((kspace.shape[-1] - sens_maps.shape[-1]) / 2)))
+                        sens_maps = np.pad(sens_maps, pad_width, mode='constant')
+                        sens_maps = np.nan_to_num(sens_maps / rss(sens_maps, 1))
+
+                        # fully sampled coil combined reconstructions:
+                        coil_imgs_fs = ifft2c(kspace)
+                        coil_imgs_fs = np.roll(coil_imgs_fs, shift=y_shift, axis=-2)
+                        img_cc_fs = np.sum(coil_imgs_fs * np.conj(sens_maps), axis=1)
+
+                        ### Motion-free ground truth data:
+                        raw_data_gt = g['out']['Data'][dataslice, :, 0, 0, :, 0]
+                        tmp = g['out']['Parameter']['YRange'][:]
+                        if len(np.unique(tmp[0])) > 1 or len(np.unique(tmp[1])) > 1:
+                            print('Error: different y shifts for different echoes!')
+                        y_shift_gt = -int((tmp[0, 0] + tmp[1, 0]) / 2)
+                        # y_shift to be used on images (see below)
+
+                        # convert to proper complex data
+                        if isinstance(raw_data_gt, np.ndarray) and raw_data_gt.dtype == [('real', '<f4'), ('imag', '<f4')]:
+                            kspace_gt = raw_data_gt.view(np.complex64).astype(np.complex64)
+                            sens_maps_gt = g['out']['SENSE']['maps'][dataslice, :, 0, 0, :, 0].view(np.complex64).astype(
+                                np.complex64)
+                        else:
+                            print('[RawMotionT2starDataset::ERROR]: Unexpected data format for motion data: ',
+                                  raw_data_gt.dtype)
+
+                        # pad coil sensitivity maps to have same shape as images:
+                        pad_width = ((0, 0), (0, 0), (0, 0), (int((kspace_gt.shape[-1] - sens_maps_gt.shape[-1]) / 2),
+                                                              int((kspace_gt.shape[-1] - sens_maps_gt.shape[-1]) / 2)))
+                        sens_maps_gt = np.pad(sens_maps_gt, pad_width, mode='constant')
+                        sens_maps_gt = np.nan_to_num(sens_maps_gt / rss(sens_maps_gt, 1))
+
+                        # fully sampled coil combined reconstructions:
+                        coil_imgs_fs_gt = ifft2c(kspace_gt)
+                        coil_imgs_fs_gt = np.roll(coil_imgs_fs_gt, shift=y_shift_gt, axis=-2)
+                        img_cc_fs_gt = np.sum(coil_imgs_fs_gt * np.conj(sens_maps_gt), axis=1)
+
+                        # normalize fully sampled gt image:
+                        if self.normalize == "abs_image":
+                            norm = np.nanmax(abs(img_cc_fs_gt)) + 1e-9
+                            img_cc_fs_gt /= norm
+
+                        new_samples.append(T2StarRawMotionDataSample(filename_move,
+                                                               dataslice,
+                                                               kspace,
+                                                               sens_maps,
+                                                               img_cc_fs,
+                                                               y_shift,
+                                                               img_cc_fs_gt))
+
+            self.raw_samples += new_samples
+
+    def _get_slice_indices(self, filename):
+        with h5py.File(filename, "r") as hf:
+            if self.only_bm_slices and not self.overfit_one_sample:
+                brain_mask = hf["Brain_mask"]  # Brain mask shape: nr_slices, PE_lines, readout
+                bm_summed = np.sum(brain_mask, axis=(1, 2))
+                slices_ind = np.where(bm_summed / (brain_mask.shape[1] * brain_mask.shape[2]) > self.bm_thr)[0]
+            elif self.overfit_one_sample:
+                slices_ind = [self.overfit_one_sample]
+            else:
+                slices_ind = np.arange(hf['out']['Data'].shape[0])
+        return slices_ind
+
+    def __len__(self):
+        return len(self.raw_samples)
+
+    def __getitem__(self, idx):
+        filename_move, dataslice, kspace, sens_maps, img_cc_fs, y_shift, img_cc_fs_gt = self.raw_samples[idx]
+
+        # create bootstrap samples:
+        masks, img_cc_zfs = [], []
+        for i in range(self.nr_bootstrap_samples):
+            # undersample with a random mask:
+            nc, ne, npe, nfe = kspace.shape
+            if self.random_mask is not False:
+                mask = np.random.choice([1, 0], (npe), p=[1 / self.random_mask[0], 1 - 1 / self.random_mask[0]])
+                mask[npe//2 - self.random_mask[1]//2:npe//2 + self.random_mask[1]//2] = 1
+            else:
+                logging.info("[RawMotionT2starDataset::ERROR]: Random masks needed for bootstrap")
+            mask = mask.reshape(1, 1, npe, 1).repeat(nc, axis=0).repeat(ne, axis=1).repeat(nfe, axis=3)
+            kspace_zf = kspace*mask
+
+            # zero-filled coil combined reconstructions:
+            coil_imgs_zf = ifft2c(kspace_zf)
+            coil_imgs_zf = np.roll(coil_imgs_zf, shift=y_shift, axis=-2)
+            img_cc_zf = np.sum(coil_imgs_zf * np.conj(sens_maps), axis=1)
+
+            if self.select_echo is not False:
+                img_cc_zf = np.array([img_cc_zf[self.select_echo]])
+                mask = np.array([mask[self.select_echo]])
+
+            # equal coil dimension of 32 for all datasets:
+            mask_32 = np.zeros((mask.shape[0], 32, mask.shape[2], mask.shape[3]), dtype=mask.dtype)
+            mask_32[:, :mask.shape[1]] = mask
+
+            masks.append(mask_32)
+            img_cc_zfs.append(img_cc_zf)
+
+        masks, img_cc_zfs = np.array(masks), np.array(img_cc_zfs)
+
+        if self.normalize == "abs_image":
+            norm = np.nanmax(abs(img_cc_fs)) + 1e-9
+            img_cc_zfs /= norm
+            img_cc_fs /= norm
+
+        if self.select_echo is not False:
+            img_cc_fs = np.array([img_cc_fs[self.select_echo]])
+            img_cc_fs_gt = np.array([img_cc_fs_gt[self.select_echo]])
+
+        # equal coil dimension of 32 for all datasets:
+        sens_maps_32 = np.zeros((sens_maps.shape[0], 32, sens_maps.shape[2], sens_maps.shape[3]), dtype=sens_maps.dtype)
+        sens_maps_32[:, :sens_maps.shape[1]] = sens_maps
+
+        # return zero-filled image, fully sampled image, mask sensitivity maps etc
+        return torch.as_tensor(img_cc_zfs, dtype=torch.complex64), \
+               torch.as_tensor(img_cc_fs, dtype=torch.complex64), \
+               torch.as_tensor(masks, dtype=torch.complex64), \
+               torch.as_tensor(sens_maps_32, dtype=torch.complex64), \
+               torch.as_tensor(img_cc_fs_gt, dtype=torch.complex64), \
+               str(filename_move), dataslice
+
+
+class RawMotionT2starLoader(pl.LightningDataModule):
+    def __init__(self, args):
+        super().__init__()
+        akeys = args.keys()
+        self.batch_size = args['batch_size'] if 'batch_size' in akeys else 8
+        self.only_brainmask_slices = args['only_brainmask_slices'] if 'only_brainmask_slices' in akeys else False
+        self.bm_thr = args['bm_thr'] if 'bm_thr' in akeys else 0.1
+        self.normalize = args['normalize'] if 'normalize' in akeys else "abs_image"
+        self.overfit_one_sample = args['overfit_one_sample'] if 'overfit_one_sample' in akeys else False
+        self.nr_bootstrap_samples = args['nr_bootstrap_samples'] if 'nr_bootstrap_samples' in akeys else 1
+        self.select_echo = args['select_echo'] if 'select_echo' in akeys else False
+        self.random_mask = args['random_mask'] if 'random_mask' in akeys else [2, 10]
+        self.drop_last = False if self.overfit_one_sample else True
+        self.num_workers = args['num_workers'] if 'num_workers' in akeys else 1
+        self.data_dir = args['data_dir'] if 'data_dir' in akeys else None
+        assert type(self.data_dir) is dict, 'DefaultDataset::init():  data_dir variable should be a dictionary'
+
+
+    def train_dataloader(self):
+        """Loads a batch of training data consisting of kspace data, target
+        mask, filenames and slice indices of the associated h5 files.
+        """
+        trainset = RawMotionT2starDataset(self.data_dir['train'],
+                                        only_bm_slices=self.only_brainmask_slices,
+                                        bm_thr=self.bm_thr,
+                                        normalize=self.normalize,
+                                        select_echo=self.select_echo,
+                                        random_mask=self.random_mask,
+                                        overfit_one_sample=self.overfit_one_sample,
+                                        nr_bootstrap_samples = self.nr_bootstrap_samples)
+        logging.info(f"Size of the train dataset: {trainset.__len__()}.")
+
+        dataloader = DataLoader(
+            trainset,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+            shuffle=True,
+            drop_last=self.drop_last,
+            pin_memory=True,
+        )
+        return dataloader
+
+    def val_dataloader(self):
+        """Loads a batch of validation data consisting of kspace data, target
+        mask, filenames and slice indices of the associated h5 files.
+        """
+        valset = RawMotionT2starDataset(self.data_dir['val'],
+                                        only_bm_slices=self.only_brainmask_slices,
+                                        bm_thr=self.bm_thr,
+                                        normalize=self.normalize,
+                                        select_echo=self.select_echo,
+                                        random_mask=self.random_mask,
+                                        overfit_one_sample=self.overfit_one_sample,
+                                        nr_bootstrap_samples = self.nr_bootstrap_samples)
+        logging.info(f"Size of the validation dataset: {valset.__len__()}.")
+
+        dataloader = DataLoader(
+            valset,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+            shuffle=False,
+            drop_last=self.drop_last,
+            pin_memory=True,
+        )
+        return dataloader
+
+    def test_dataloader(self):
+        """Loads a batch of testing data consisting of kspace data, target
+        mask, filenames and slice indices of the associated h5 files. For the
+        test data loader 'drop_last' is enabled, which means that no data will
+        be loaded if the batch size is larger than the size of the test set.
+        """
+        testset = RawMotionT2starDataset(self.data_dir['test'],
+                                         only_bm_slices=self.only_brainmask_slices,
+                                         bm_thr=self.bm_thr,
+                                         normalize=self.normalize,
+                                         select_echo=self.select_echo,
+                                         random_mask=self.random_mask,
+                                         overfit_one_sample=self.overfit_one_sample,
+                                         nr_bootstrap_samples = self.nr_bootstrap_samples)
         logging.info(f"Size of the test dataset: {testset.__len__()}.")
 
         # if testset.__len__() < self.batch_size:
@@ -525,7 +822,21 @@ class T2StarRawDataSample(NamedTuple):
     slice_ind: int
     kspace: np.ndarray
     sens_maps: np.ndarray
+    img_cc_fs: np.ndarray
     y_shift: int
+
+
+class T2StarRawMotionDataSample(NamedTuple):
+    """Generate named tuples consisting of filename, slice index and loaded raw data"""
+    fname: pathlib.Path
+    slice_ind: int
+    kspace: np.ndarray
+    sens_maps: np.ndarray
+    img_cc_fs: np.ndarray
+    y_shift: int
+    img_cc_fs_gt: np.ndarray
+
+
 
 
 def fft2c(x, shape=None, dim=(-2, -1)):

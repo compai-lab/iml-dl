@@ -84,7 +84,7 @@ class DLConfigurator(object):
                 dst = downstream_class(dst_name, self.model, self.device, data, dst_config['checkpoint_path'])
             dst.start_task(global_model=global_model)
             logging.info("[Configurator::eval]: ################ Finished downstream task nr. {}/{} ################"
-                         .format(idx, nr_tasks))
+                         .format(idx+1, nr_tasks))
 
     @staticmethod
     def load_data(data_loader_config, train=True):
