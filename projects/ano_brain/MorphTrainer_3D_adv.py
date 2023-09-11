@@ -52,9 +52,13 @@ class PTrainer(Trainer):
             padding=1,
         )
         discriminator.to(self.device)
+        optimizer_d = torch.optim.Adam(discriminator.parameters(), lr=5e-4)
 
         if model_state is not None:
             self.model.load_state_dict(model_state)
+            checkpoint = torch.load('./weights/adni_adv/sota//discriminator.pt', map_location=torch.device(self.device))
+            discriminator.load_state_dict(checkpoint['model_weights'])
+            optimizer_d.load_state_dict(checkpoint['optimizer_weights'])
         if opt_state is not None:
             self.optimizer.load_state_dict(opt_state)  # load optimizer
         epoch_losses = []
@@ -67,7 +71,7 @@ class PTrainer(Trainer):
         epoch_adv_losses = []
 
         self.early_stop = False
-        optimizer_d = torch.optim.Adam(discriminator.parameters(), lr=5e-4)
+        
 
         for epoch in range(self.training_params['nr_epochs']):
             if start_epoch > epoch:
@@ -126,8 +130,9 @@ class PTrainer(Trainer):
                 discriminator_loss = (loss_d_fake + loss_d_real) * 0.5
 
                 loss_d = self.gamma * discriminator_loss
+                #if epoch % 3 ==0:
                 loss_d.backward()
-                #  torch.nn.utils.clip_grad_norm_(self.model.parameters(), 0.25)  # to avoid nan loss
+                    #  torch.nn.utils.clip_grad_norm_(self.model.parameters(), 0.25)  # to avoid nan loss
                 optimizer_d.step()
 
                 batch_loss += loss_rec.item() * images.size(0)
@@ -202,16 +207,21 @@ class PTrainer(Trainer):
 
                         axarr[axis, i].imshow(np.squeeze(el).T, vmin=0, vmax=v_max, cmap=c_map, origin='lower')
                     else:
-                       
-                         if axis == 0:
-                             plot_warped_grid(ax=axarr[axis, i],disp=np.concatenate((np.squeeze(elements[i])[np.newaxis,2, int(w / 2),:,:], np.squeeze(elements[i])[np.newaxis,1, int(w / 2),:,:]), 0))
-                         elif axis == 1:
-                             plot_warped_grid(ax=axarr[axis, i],disp=np.concatenate((np.squeeze(elements[i])[np.newaxis,2, :, int(w / 2),:], np.squeeze(elements[i])[np.newaxis,0, :, int(w / 2),:]), 0))
-                         else:
-                             plot_warped_grid(ax=axarr[axis, i],disp=np.concatenate((np.squeeze(elements[i])[np.newaxis,1, :,:, int(w / 2)], np.squeeze(elements[i])[np.newaxis,0, :,:, int(w / 2)]), 0))
+                        
+                        if axis == 0:
+                            temp=np.concatenate((np.rot90(elements[i][np.newaxis,2, int(w / 2),:,:],axes=(1,2)), np.rot90(elements[i][np.newaxis,1, int(w / 2),:,:],axes=(1,2))), 0)
+                            plot_warped_grid(ax=axarr[axis, i],disp=temp) # .rot90(axes=(2,3)
+                        elif axis == 1:
+                            temp=np.concatenate((np.rot90(elements[i][np.newaxis,2, :, int(w / 2),:],axes=(1,2)), np.rot90(elements[i][np.newaxis,0, :, int(w / 2),:],axes=(1,2))), 0)
+                            plot_warped_grid(ax=axarr[axis, i],disp=temp)
+                        else:
+                            temp=np.concatenate((np.rot90(elements[i][np.newaxis,1, :,:, int(w / 2)],axes=(1,2)), np.rot90(elements[i][np.newaxis,0, :,:, int(w / 2)],axes=(1,2))), 0)
+                            plot_warped_grid(ax=axarr[axis, i],disp=temp)
             wandb.log({'Train/Example_': [
                 wandb.Image(diffp, caption="Iteration_" + str(epoch))]})
-
+            torch.save({'model_weights': discriminator.state_dict(),
+            'optimizer_weights': optimizer_d.state_dict(),
+            'epoch': epoch}, self.client_path + '/discriminator.pt')
             # Run validation
             self.test(self.model.state_dict(), self.val_ds, 'Val', self.optimizer.state_dict(), epoch)
 
