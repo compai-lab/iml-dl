@@ -87,7 +87,7 @@ def plot_warped_grid(ax, disp, bg_img=None, interval=3, title="$\mathcal{T}_\phi
         ax.plot(new_grid_W[:, i], new_grid_H[:, i], **kwargs)  # each draws a vertical line
 
    # ax.set_title(title, fontsize=fontsize)
-    ax.imshow(np.rot90(background,3), cmap='gray')
+    ax.imshow(background, cmap='gray')
     # ax.axis('off')
     ax.grid(False)
     ax.set_xticks([])

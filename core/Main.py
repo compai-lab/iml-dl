@@ -47,7 +47,7 @@ class Main(object):
             params=configurator.dl_config
         )
 
-        wandb.init(project=exp_name, name=method_name, config=config_dict, id=date_time)#resume="must"
+        wandb.init(project=exp_name, name=method_name, config=config_dict, id="2023_09_13_08_56_31_286959",resume="must")#resume="must"
 
         device = 'cuda' if config_file['device'] == 'gpu' else 'cpu'
         checkpoint = dict()

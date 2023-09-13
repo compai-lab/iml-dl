@@ -1,14 +1,14 @@
-name: c_5_b_10_g_0.01_c_32_stride_nearest
+name: c_5_b_1_g_0.01_c_32_stride_nearest
 target_size: &target_size !!python/tuple [128, 128, 128]
 dbatch_size: &dbatch_size 1
-checkpoint_path: &checkpoint_path ./weights/adni_adv/sota/
+checkpoint_path: &checkpoint_path ./weights/adni_adv_final/sota/
 #
 # Experiment
 #
 experiment:
-  name: Morphaeus_3D_ADNI_mixeddata_adv_loss
+  name: Morphaeus_3D_ADNI_mixeddata_adv_loss_final
   task: train
-  weights: #'./weights/adni_adv/sota/2023_09_10_09_28_14_688677/latest_model.pt'
+  weights: './weights/adni_adv_final/sota/2023_09_13_08_56_31_286959/latest_model.pt'
 #
 device: gpu
 configurator:
@@ -34,8 +34,8 @@ model:
       - 512
      # - 1024
     strides:
-     # - 2
       - 2
+     # - 2
       - 2
       - 2
       - 2
@@ -62,7 +62,7 @@ trainer:
       params:
     patience: 100
     alfa: 0.001
-    beta: 10
+    beta: 1
     gamma: 0.01
     # Optimizer
     # Optimizer

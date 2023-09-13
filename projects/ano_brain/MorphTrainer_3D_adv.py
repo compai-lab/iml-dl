@@ -56,7 +56,7 @@ class PTrainer(Trainer):
 
         if model_state is not None:
             self.model.load_state_dict(model_state)
-            checkpoint = torch.load('./weights/adni_adv/sota//discriminator.pt', map_location=torch.device(self.device))
+            checkpoint = torch.load('./weights/adni_adv_final/sota/2023_09_13_08_56_31_286959/discriminator.pt', map_location=torch.device(self.device))
             discriminator.load_state_dict(checkpoint['model_weights'])
             optimizer_d.load_state_dict(checkpoint['optimizer_weights'])
         if opt_state is not None:
@@ -94,11 +94,12 @@ class PTrainer(Trainer):
                 count_images += b
                 # Forward Pass
                 reconstruction, result_dict = self.model(transformed_images, registration=False)
-                logits_fake = discriminator(reconstruction.contiguous().float())[-1]
 
                 global_prior = result_dict['x_prior']
                 reversed_img = result_dict['x_reversed']
                 deformation = result_dict['deformation']
+                logits_fake = discriminator(global_prior.contiguous().float())[-1]
+
                 # Losses
                 loss_rec = self.criterion_rec(global_prior, images, result_dict)
                 #loss_pl = self.criterion_PL(global_prior, images).mean()
@@ -303,12 +304,15 @@ class PTrainer(Trainer):
                                 axarr[axis, i].imshow(np.squeeze(el).T, vmin=0, vmax=v_max, cmap=c_map, origin='lower')
                             else:
                                 
-                                    if axis == 0:
-                                        plot_warped_grid(ax=axarr[axis, i],disp=np.concatenate((np.squeeze(elements[i])[np.newaxis,1, int(w / 2),:,:], np.squeeze(elements[i])[np.newaxis,2, int(w / 2),:,:]), 0))
-                                    elif axis == 1:
-                                        plot_warped_grid(ax=axarr[axis, i],disp=np.concatenate((np.squeeze(elements[i])[np.newaxis,0, :, int(w / 2),:], np.squeeze(elements[i])[np.newaxis,2, :, int(w / 2),:]), 0))
-                                    else:
-                                        plot_warped_grid(ax=axarr[axis, i],disp=np.concatenate((np.squeeze(elements[i])[np.newaxis,0, :,:, int(w / 2)], np.squeeze(elements[i])[np.newaxis,1, :,:, int(w / 2)]), 0))
+                                if axis == 0:
+                                    temp=np.concatenate((np.rot90(elements[i][np.newaxis,2, int(w / 2),:,:],axes=(1,2)), np.rot90(elements[i][np.newaxis,1, int(w / 2),:,:],axes=(1,2))), 0)
+                                    plot_warped_grid(ax=axarr[axis, i],disp=temp) # .rot90(axes=(2,3)
+                                elif axis == 1:
+                                    temp=np.concatenate((np.rot90(elements[i][np.newaxis,2, :, int(w / 2),:],axes=(1,2)), np.rot90(elements[i][np.newaxis,0, :, int(w / 2),:],axes=(1,2))), 0)
+                                    plot_warped_grid(ax=axarr[axis, i],disp=temp)
+                                else:
+                                    temp=np.concatenate((np.rot90(elements[i][np.newaxis,1, :,:, int(w / 2)],axes=(1,2)), np.rot90(elements[i][np.newaxis,0, :,:, int(w / 2)],axes=(1,2))), 0)
+                                    plot_warped_grid(ax=axarr[axis, i],disp=temp)
                     wandb.log({task + '/Example_': [
                             wandb.Image(diffp, caption="Iteration_" + str(epoch)+"_"+str(test_total))]})
         if task=='Test':

@@ -215,13 +215,16 @@ class PTrainer(Trainer):
 
                         axarr[axis, i].imshow(np.squeeze(el).T, vmin=0, vmax=v_max, cmap=c_map, origin='lower')
                     else:
-                       
-                         if axis == 0:
-                             plot_warped_grid(ax=axarr[axis, i],disp=np.concatenate((np.squeeze(elements[i])[np.newaxis,2, int(w / 2),:,:], np.squeeze(elements[i])[np.newaxis,1, int(w / 2),:,:]), 0))
-                         elif axis == 1:
-                             plot_warped_grid(ax=axarr[axis, i],disp=np.concatenate((np.squeeze(elements[i])[np.newaxis,2, :, int(w / 2),:], np.squeeze(elements[i])[np.newaxis,0, :, int(w / 2),:]), 0))
-                         else:
-                             plot_warped_grid(ax=axarr[axis, i],disp=np.concatenate((np.squeeze(elements[i])[np.newaxis,1, :,:, int(w / 2)], np.squeeze(elements[i])[np.newaxis,0, :,:, int(w / 2)]), 0))
+                    
+                        if axis == 0:
+                            temp=np.concatenate((np.rot90(elements[i][np.newaxis,2, int(w / 2),:,:],axes=(1,2)), np.rot90(elements[i][np.newaxis,1, int(w / 2),:,:],axes=(1,2))), 0)
+                            plot_warped_grid(ax=axarr[axis, i],disp=temp) # .rot90(axes=(2,3)
+                        elif axis == 1:
+                            temp=np.concatenate((np.rot90(elements[i][np.newaxis,2, :, int(w / 2),:],axes=(1,2)), np.rot90(elements[i][np.newaxis,0, :, int(w / 2),:],axes=(1,2))), 0)
+                            plot_warped_grid(ax=axarr[axis, i],disp=temp)
+                        else:
+                            temp=np.concatenate((np.rot90(elements[i][np.newaxis,1, :,:, int(w / 2)],axes=(1,2)), np.rot90(elements[i][np.newaxis,0, :,:, int(w / 2)],axes=(1,2))), 0)
+                            plot_warped_grid(ax=axarr[axis, i],disp=temp)
             wandb.log({'Train/Example_': [
                 wandb.Image(diffp, caption="Iteration_" + str(epoch))]})
 
@@ -306,12 +309,15 @@ class PTrainer(Trainer):
                                 axarr[axis, i].imshow(np.squeeze(el).T, vmin=0, vmax=v_max, cmap=c_map, origin='lower')
                             else:
                                 
-                                    if axis == 0:
-                                        plot_warped_grid(ax=axarr[axis, i],disp=np.concatenate((np.squeeze(elements[i])[np.newaxis,1, int(w / 2),:,:], np.squeeze(elements[i])[np.newaxis,2, int(w / 2),:,:]), 0))
-                                    elif axis == 1:
-                                        plot_warped_grid(ax=axarr[axis, i],disp=np.concatenate((np.squeeze(elements[i])[np.newaxis,0, :, int(w / 2),:], np.squeeze(elements[i])[np.newaxis,2, :, int(w / 2),:]), 0))
-                                    else:
-                                        plot_warped_grid(ax=axarr[axis, i],disp=np.concatenate((np.squeeze(elements[i])[np.newaxis,0, :,:, int(w / 2)], np.squeeze(elements[i])[np.newaxis,1, :,:, int(w / 2)]), 0))
+                                if axis == 0:
+                                    temp=np.concatenate((np.rot90(elements[i][np.newaxis,2, int(w / 2),:,:],axes=(1,2)), np.rot90(elements[i][np.newaxis,1, int(w / 2),:,:],axes=(1,2))), 0)
+                                    plot_warped_grid(ax=axarr[axis, i],disp=temp) # .rot90(axes=(2,3)
+                                elif axis == 1:
+                                    temp=np.concatenate((np.rot90(elements[i][np.newaxis,2, :, int(w / 2),:],axes=(1,2)), np.rot90(elements[i][np.newaxis,0, :, int(w / 2),:],axes=(1,2))), 0)
+                                    plot_warped_grid(ax=axarr[axis, i],disp=temp)
+                                else:
+                                    temp=np.concatenate((np.rot90(elements[i][np.newaxis,1, :,:, int(w / 2)],axes=(1,2)), np.rot90(elements[i][np.newaxis,0, :,:, int(w / 2)],axes=(1,2))), 0)
+                                    plot_warped_grid(ax=axarr[axis, i],disp=temp)
                     wandb.log({task + '/Example_': [
                             wandb.Image(diffp, caption="Iteration_" + str(epoch)+"_"+str(test_total))]})
         if task=='Test':
