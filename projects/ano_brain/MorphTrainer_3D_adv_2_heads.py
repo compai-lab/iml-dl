@@ -159,22 +159,24 @@ class PTrainer(Trainer):
                     param.requires_grad = False
                 reconstruction, result_dict,reconstruction_b1, result_dict_b1,reconstruction_b01, result_dict_b01 = self.model(transformed_images, registration=False)
                 global_prior = result_dict['x_prior']
-                deformation = result_dict['deformation']
+                deformation_b1 = result_dict_b1['deformation']
+                reversed_b1 = result_dict_b1['x_reversed']
 
                 loss_rec = self.criterion_rec(global_prior, images, result_dict)
                 logits_fake = discriminator(global_prior.contiguous().float())[-1]
 
-                reg_deform = self.deform_R(deformation)
-                loss_deform = self.ncc_loss(images, reconstruction) if torch.equal(reconstruction, reversed_img) \
-                    else (self.ncc_loss(images, reconstruction) + self.ncc_loss(global_prior, reversed_img))/2
+                reg_deform = self.deform_R(deformation_b1)
+                loss_deform = self.ncc_loss(images, reconstruction_b1) if torch.equal(reconstruction_b1, reversed_b1) \
+                    else (self.ncc_loss(images, reconstruction_b1) + self.ncc_loss(global_prior, reversed_b1))/2
                 loss_adv=self.adv_loss(logits_fake, target_is_real=True, for_discriminator=False)
-
+                
+                loss_deformer_b1 = loss_rec + self.gamma * loss_adv 
                 if epoch > 10:
                     loss_deformer_b1 = loss_rec + self.delta * loss_deform + 1 * reg_deform + self.gamma * loss_adv
                     
-                    self.optimizer_deformer_b1.zero_grad()
-                    loss_deformer_b1.backward()
-                    self.optimizer_deformer_b1.step()
+                self.optimizer_deformer_b1.zero_grad()
+                loss_deformer_b1.backward()
+                self.optimizer_deformer_b1.step()
 
                 # #b=0.1 
                 for param in self.model.encoder.parameters():
@@ -189,22 +191,25 @@ class PTrainer(Trainer):
                     param.requires_grad = True
                 reconstruction, result_dict,reconstruction_b1, result_dict_b1,reconstruction_b01, result_dict_b01 = self.model(transformed_images, registration=False)
                 global_prior = result_dict['x_prior']
-                deformation = result_dict['deformation']
+                deformation_b01 = result_dict_b01['deformation']
+                reversed_b01 = result_dict_b01['x_reversed']
 
                 loss_rec = self.criterion_rec(global_prior, images, result_dict)
                 logits_fake = discriminator(global_prior.contiguous().float())[-1]
 
-                reg_deform = self.deform_R(deformation)
-                loss_deform = self.ncc_loss(images, reconstruction) if torch.equal(reconstruction, reversed_img) \
-                    else (self.ncc_loss(images, reconstruction) + self.ncc_loss(global_prior, reversed_img))/2
-                loss_adv=self.adv_loss(logits_fake, target_is_real=True, for_discriminator=False)     
+                reg_deform = self.deform_R(deformation_b01)
+                loss_deform = self.ncc_loss(images, reconstruction_b01) if torch.equal(reconstruction_b01, reversed_b01) \
+                    else (self.ncc_loss(images, reconstruction_b01) + self.ncc_loss(global_prior, reversed_b01))/2
+                loss_adv=self.adv_loss(logits_fake, target_is_real=True, for_discriminator=False)  
+                
+                loss_deformer_b01 = loss_rec + self.gamma * loss_adv
 
                 if epoch > 10:
                     loss_deformer_b01 = loss_rec + self.delta * loss_deform + 0.1 * reg_deform + self.gamma * loss_adv
                     
-                    self.optimizer_deformer_b01.zero_grad()
-                    loss_deformer_b01.backward()
-                    self.optimizer_deformer_b01.step()
+                self.optimizer_deformer_b01.zero_grad()
+                loss_deformer_b01.backward()
+                self.optimizer_deformer_b01.step()
 
               #  Discriminator part
                 
