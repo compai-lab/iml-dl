@@ -29,11 +29,11 @@ class PTrainer(Trainer):
         self.max_iter = training_params['max_iter'] if 'max_iter' in training_params.keys() else 500
       #  self.criterion_PL = PerceptualLoss(device=device)
         self.adv_loss=PatchAdversarialLoss(criterion="least_squares")
-        self.optimizer_deformer_b1 = Adam(self.model.deformer_b_1.parameters(), lr=training_params['optimizer_params']['lr'])   
-        self.optimizer_deformer_b01 = Adam(self.model.deformer_b_01.parameters(), lr=training_params['optimizer_params']['lr'])   
+       # self.optimizer_deformer_b1 = Adam(self.model.deformer_b_1.parameters(), lr=training_params['optimizer_params']['lr'])   
+       # self.optimizer_deformer_b01 = Adam(self.model.deformer_b_01.parameters(), lr=training_params['optimizer_params']['lr'])   
 
-        self.optimizer =Adam(list(model.encoder.parameters()) + list(model.decoder.parameters())+list(model.deformer.parameters()), lr=training_params['optimizer_params']['lr'])
-        #self.optimizer =Adam(self.model.parameters(), lr=training_params['optimizer_params']['lr'])
+       # self.optimizer =Adam(list(model.encoder.parameters()) + list(model.decoder.parameters())+list(model.deformer.parameters()), lr=training_params['optimizer_params']['lr'])
+       # self.optimizer =Adam(self.model.parameters(), lr=training_params['optimizer_params']['lr'])
     def train(self, model_state=None, opt_state=None, start_epoch=0):
         """
         Train local client
@@ -67,7 +67,7 @@ class PTrainer(Trainer):
 
         if model_state is not None:
             self.model.load_state_dict(model_state)
-            checkpoint = torch.load('./weights/adni_adv_last/sota/2023_5_12_08_19_20_930344/discriminator.pt', map_location=torch.device(self.device))
+            checkpoint = torch.load('./weights/adni_adv_last_2_heads/sota/2023_10_23_22_34_23_758757/discriminator.pt', map_location=torch.device(self.device))
             discriminator.load_state_dict(checkpoint['model_weights'])
             optimizer_d.load_state_dict(checkpoint['optimizer_weights'])
             epoch_adv_loss=0.25
@@ -123,21 +123,51 @@ class PTrainer(Trainer):
                 loss_adv=self.adv_loss(logits_fake, target_is_real=True, for_discriminator=False)
 
                 loss = loss_rec  + self.gamma * loss_adv
-                if epoch > 0:
-                   loss = loss_rec + self.delta * loss_deform + self.beta * reg_deform + self.gamma * loss_adv
+                if epoch > 10:
+                                   #========= Update Deformer with a few different betas  ==================
+                # b=1
+                    imagess = data[0].to(self.device)
+                    transformed_imagess = self.transform(imagess) if self.transform is not None else imagess
+                    encode_historyy = [x.detach().clone() for x in result_dict['encode_history']]
+                    #  encode_historyy = copy.deepcopy(encode_history)
+                        
+                    decode_historyy = [x.detach().clone() for x in result_dict['decode_history']]
+                        #decode_historyy = copy.deepcopy(decode_history)
+                    gl_priorr = result_dict['x_prior'].detach().clone()
 
+                    reconstruction_b1,result_dict_b1= self.model.forward_b1(transformed_imagess,gl_priorr,encode_historyy,decode_historyy,False)
+                    deformation_b1 = result_dict_b1['deformation']
+                    reversed_b1 = result_dict_b1['x_reversed']
+
+
+                    reg_deformm = self.deform_R(deformation_b1)
+                    loss_deformm = self.ncc_loss(imagess, reconstruction_b1) if torch.equal(reconstruction_b1, reversed_b1) \
+                        else (self.ncc_loss(imagess, reconstruction_b1) + self.ncc_loss(gl_priorr, reversed_b1))/2
+                    
+                    
+                    loss_deformer_b1 =   self.delta * loss_deformm + 1 * reg_deformm 
+                    
+
+                    # #b=0.1 
+
+                    reconstruction_b01,result_dict_b01= self.model.forward_b01(transformed_imagess,gl_priorr,encode_historyy,decode_historyy,False)
+                    deformation_b01 = result_dict_b01['deformation']
+                    reversed_b01 = result_dict_b01['x_reversed']
+                    reg_deformm = self.deform_R(deformation_b01)
+
+                    loss_deformm = self.ncc_loss(imagess, reconstruction_b01) if torch.equal(reconstruction_b01, reversed_b01) \
+                        else (self.ncc_loss(imagess, reconstruction_b01) + self.ncc_loss(gl_priorr, reversed_b01))/2
+                    
+                    loss_deformer_b01 = self.delta * loss_deformm + 0.1 * reg_deformm
+
+                    loss_rec_after_deformation_b1 = self.criterion_rec(reconstruction_b1, imagess, result_dict)
+                    loss_rec_after_deformation_b01 = self.criterion_rec(reconstruction_b01, imagess, result_dict)
+                    
+                    loss = loss_rec + self.delta * loss_deform + self.beta * reg_deform + self.gamma * loss_adv + loss_deformer_b1 + loss_deformer_b01
+ 
                 # =========== Update Morph, beta = 10 ================
 
-                for param in self.model.deformer_b_1.parameters():
-                    param.requires_grad = False
-                for param in self.model.deformer_b_01.parameters():
-                    param.requires_grad = False
-                for param in self.model.encoder.parameters():
-                    param.requires_grad = True
-                for param in self.model.decoder.parameters():
-                    param.requires_grad = True
-                for param in self.model.deformer.parameters():
-                    param.requires_grad = True
+
                 self.optimizer.zero_grad()
                 # Backward Pass
                 loss.backward()
@@ -157,82 +187,6 @@ class PTrainer(Trainer):
                     optimizer_d.step()
                  #   print("Discriminator started training!")
 
-                #========= Update Deformer with a few different betas  ==================
-               # b=1
-                imagess = data[0].to(self.device)
-                transformed_imagess = self.transform(imagess) if self.transform is not None else imagess
-                encode_historyy = [x.detach().clone() for x in result_dict['encode_history']]
-                  #  encode_historyy = copy.deepcopy(encode_history)
-                    
-                decode_historyy = [x.detach().clone() for x in result_dict['decode_history']]
-                    #decode_historyy = copy.deepcopy(decode_history)
-                gl_priorr = result_dict['x_prior'].detach().clone()
-                if epoch > 0:
-
-
-
-                    reconstruction_b1,result_dict_b1= self.model.forward_b1(transformed_imagess,gl_priorr,encode_historyy,decode_historyy,False)
-                    deformation_b1 = result_dict_b1['deformation']
-                    reversed_b1 = result_dict_b1['x_reversed']
-
-
-                    reg_deformm = self.deform_R(deformation_b1)
-                    loss_deformm = self.ncc_loss(imagess, reconstruction_b1) if torch.equal(reconstruction_b1, reversed_b1) \
-                        else (self.ncc_loss(imagess, reconstruction_b1) + self.ncc_loss(gl_priorr, reversed_b1))/2
-                    
-                    
-                    loss_deformer_b1 =   self.delta * loss_deformm + 1 * reg_deformm 
-                    
-                    for param in self.model.encoder.parameters():
-                        param.requires_grad = False
-                    for param in self.model.decoder.parameters():
-                        param.requires_grad = False
-                    for param in self.model.deformer.parameters():
-                        param.requires_grad = False
-                    for param in self.model.deformer_b_1.parameters():
-                        param.requires_grad = True
-                    for param in self.model.deformer_b_01.parameters():
-                        param.requires_grad = False
-                    loss_deformer_b1.requires_grad = True
-                    self.optimizer_deformer_b1.zero_grad()
-                    loss_deformer_b1.backward()
-                    self.optimizer_deformer_b1.step()
-
-                    # #b=0.1 
-
-                    reconstruction_b01,result_dict_b01= self.model.forward_b01(transformed_imagess,gl_priorr,encode_historyy,decode_historyy,False)
-                    deformation_b01 = result_dict_b01['deformation']
-                    reversed_b01 = result_dict_b01['x_reversed']
-                    reg_deformm = self.deform_R(deformation_b01)
-
-                    loss_deformm = self.ncc_loss(imagess, reconstruction_b01) if torch.equal(reconstruction_b01, reversed_b01) \
-                        else (self.ncc_loss(imagess, reconstruction_b01) + self.ncc_loss(gl_priorr, reversed_b01))/2
-                    
-                    loss_deformer_b01 = self.delta * loss_deformm + 0.1 * reg_deformm
-
-                    for param in self.model.encoder.parameters():
-                        param.requires_grad = False
-                    for param in self.model.decoder.parameters():
-                        param.requires_grad = False
-                    for param in self.model.deformer.parameters():
-                        param.requires_grad = False
-                    for param in self.model.deformer_b_1.parameters():
-                        param.requires_grad = False
-                    for param in self.model.deformer_b_01.parameters():
-                        param.requires_grad = True
-                    loss_deformer_b01.requires_grad = True
-                    self.optimizer_deformer_b01.zero_grad()
-                    loss_deformer_b01.backward()
-                    self.optimizer_deformer_b01.step()
-
-              #  Discriminator part
-                
-
-
-                    loss_rec_after_deformation_b1 = self.criterion_rec(reconstruction_b1, imagess, result_dict)
-                    loss_rec_after_deformation_b01 = self.criterion_rec(reconstruction_b01, imagess, result_dict)
-
-
 
                 _,_,perc_neg_jac_det,jacdet=jacobian_determinant(deformation.cpu().detach().numpy(),reconstruction.cpu().detach().numpy())
 
@@ -247,7 +201,7 @@ class PTrainer(Trainer):
                 batch_loss_deform += loss_deform.item() * images.size(0)
                 batch_adv_loss += loss_adv.item() * images.size(0)
                 batch_disc_loss += loss_d.item() * images.size(0)
-                if epoch > 0:
+                if epoch > 10:
                     batch_loss_after_deformation_b1 += loss_rec_after_deformation_b1.item() * images.size(0)
                     batch_loss_after_deformation_b01 += loss_rec_after_deformation_b01.item() * images.size(0)
                    
@@ -305,7 +259,7 @@ class PTrainer(Trainer):
            # deff=rec_
             deff = deformation[0,:,:,:,:].detach().cpu().numpy()
             # print(f'rec: {np.min(rec)}, {np.max(rec)}')
-            if epoch > 0:
+            if epoch > 10:
                 epoch_loss_after_deformation_b1 =( batch_loss_after_deformation_b1) / count_images if count_images > 0 else batch_loss
                 epoch_loss_after_deformation_b01 =( batch_loss_after_deformation_b01) / count_images if count_images > 0 else batch_loss
                 wandb.log({"Train/LossAfter__Deformation_b1_": epoch_loss_after_deformation_b1, '_step_': epoch})
