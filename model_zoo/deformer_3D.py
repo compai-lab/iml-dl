@@ -31,7 +31,10 @@ class Deformer(nn.Module):
         ndims = len(inshape)
         padding = (kernel_size - 1) // 2
         encode_channel_list = list(reversed(channels))[1:]
-        decode_channel_list = list(reversed(channels[1:]))
+        if deconv_mode=="stride_upsample":
+             decode_channel_list = list(reversed(channels[0:-1]))
+        else:
+            decode_channel_list = list(reversed(channels[1:]))
         decode_strides = strides[::-1] or [1]
 
         self.deformerNN = nn.Sequential()
@@ -39,14 +42,19 @@ class Deformer(nn.Module):
             layer_channels = decode_channel_list[i] + encode_channel_list[i]
             layer_channels = layer_channels + 32 if i > 0 else layer_channels
 
-            if deconv_mode == 'upsample':
+            if deconv_mode == 'stride_upsample' and i!=0:
                 # if i > 0:
                 self.deformerNN.add_module(name_prefix + "_upsample_%i" % i,
-                                           nn.Upsample(scale_factor=s, mode='bilinear', align_corners=True))
+                                           nn.Upsample(scale_factor=s, mode='nearest'))
                 self.deformerNN.add_module(name_prefix + "_refine_%i" % i,
                                            nn.Conv3d(in_channels=layer_channels, out_channels=32,
                                           kernel_size=(kernel_size, kernel_size,kernel_size)
                                           , padding=padding))
+            elif deconv_mode == 'stride_upsample' and i==0:
+                self.deformerNN.add_module(name_prefix + "_refine_%i" % i,
+                                nn.Conv3d(in_channels=layer_channels, out_channels=32,
+                                kernel_size=(kernel_size, kernel_size,kernel_size)
+                                , padding=padding))
             else:
                 self.deformerNN.add_module(name_prefix + "_refine_%i" % i,
                                            nn.ConvTranspose3d(in_channels=layer_channels, out_channels=32,

@@ -54,7 +54,7 @@ def vis_3d_reconstruction(img, rec, slice_id=0, prior=None, gt=None):
     return figs
 
 
-def plot_warped_grid(ax, disp, bg_img=None, interval=3, title="$\mathcal{T}_\phi$", fontsize=30, color=(0.85, 0.27, 0.41, 0.75), linewidth=1.0):
+def plot_warped_grid(ax, disp, bg_img=None, interval=2, title="$\mathcal{T}_\phi$", fontsize=30, color=(0.65, 0.67, 0.61, 0.75), linewidth=1.0,save=None):
     """disp shape (2, H, W)
             code from: https://github.com/qiuhuaqi/midir
     """
@@ -79,7 +79,7 @@ def plot_warped_grid(ax, disp, bg_img=None, interval=3, title="$\mathcal{T}_\phi
         new_grid_D = id_grid_D + disp[2, id_grid_H, id_grid_W,id_grid_D]
         #new_grid_H=np.rot90(new_grid_H,3)
         #new_grid_W=np.rot90(new_grid_W,3)
-    kwargs = {"linewidth": linewidth, "color": color }
+    kwargs = {"linewidth": linewidth, "color": "white" }
     # matplotlib.plot() uses CV x-y indexing
     for i in range(new_grid_H.shape[0]):
         ax.plot(new_grid_W[i, :], new_grid_H[i, :], **kwargs)  # each draws a horizontal line
@@ -88,12 +88,56 @@ def plot_warped_grid(ax, disp, bg_img=None, interval=3, title="$\mathcal{T}_\phi
 
    # ax.set_title(title, fontsize=fontsize)
     ax.imshow(background, cmap='gray')
+
     # ax.axis('off')
     ax.grid(False)
     ax.set_xticks([])
     ax.set_yticks([])
     ax.set_frame_on(False)
+
     return ax
+def save_warped_grid(disp, bg_img=None, interval=1, title="$\mathcal{T}_\phi$", fontsize=30, idx=None,color=(0.65, 0.67, 0.61, 0.75), linewidth=1.0,save=None):
+    """disp shape (2, H, W)
+            code from: https://github.com/qiuhuaqi/midir
+    """
+    fig1, ax1 = plt.subplots()
+    if bg_img is not None:
+        background = bg_img
+    else:
+        background = np.zeros(disp.shape[1:])
+    if len(disp.shape)==3:
+        id_grid_H, id_grid_W = np.meshgrid(range(0, background.shape[0] - 1, interval),
+                                           range(0, background.shape[1] - 1, interval),
+                                       indexing='ij')
+        new_grid_H = id_grid_H + disp[0, id_grid_H, id_grid_W]
+        new_grid_W = id_grid_W + disp[1, id_grid_H, id_grid_W]
+    if len(disp.shape)==4:
+        id_grid_H, id_grid_W,id_grid_D = np.meshgrid(range(0, background.shape[0] - 1, interval),
+                                                     range(0, background.shape[1] - 1, interval),
+                                                     range(0, background.shape[2] - 1, interval),
+                                       indexing='ij')
+        
+        new_grid_H = id_grid_H + disp[0, id_grid_H, id_grid_W,id_grid_D]
+        new_grid_W = id_grid_W + disp[1, id_grid_H, id_grid_W,id_grid_D]
+        new_grid_D = id_grid_D + disp[2, id_grid_H, id_grid_W,id_grid_D]
+        #new_grid_H=np.rot90(new_grid_H,3)
+        #new_grid_W=np.rot90(new_grid_W,3)
+    kwargs = {"linewidth": linewidth, "color": "white" }
+    # matplotlib.plot() uses CV x-y indexing
+    for i in range(new_grid_H.shape[0]):
+        ax1.plot(new_grid_W[i, :], new_grid_H[i, :], **kwargs)  # each draws a horizontal line
+    for i in range(new_grid_H.shape[1]):
+        ax1.plot(new_grid_W[:, i], new_grid_H[:, i], **kwargs)  # each draws a vertical line
+
+   # ax.set_title(title, fontsize=fontsize)
+    ax1.imshow(background, cmap='gray')
+
+    # ax.axis('off')
+    ax1.grid(False)
+    ax1.set_xticks([])
+    ax1.set_yticks([])
+    ax1.set_frame_on(False)
+    ax1.figure.savefig('./results/'+save+'/test_a_'+str(idx)+'deff1'+str(interval)+'.png')
 
 def umap_plot(self, global_model):
     """

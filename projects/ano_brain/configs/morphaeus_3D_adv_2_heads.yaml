@@ -1,14 +1,14 @@
-name: c_6_b_1_a_0.005_c_32_imagenet_new_augs_
+name: b1_from_scratch
 target_size: &target_size !!python/tuple [128, 128, 128]
 dbatch_size: &dbatch_size 1
-checkpoint_path: &checkpoint_path ./weights/adni/sota/
+checkpoint_path: &checkpoint_path ./weights/adni_adv_last_2_heads/sota/
 #
 # Experiment
 #
 experiment:
-  name: Morphaeus_3D_ADNI_mixeddata
+  name: Morphaeus_3D_ADNI_mixeddata_adv_loss_2_heads
   task: test
-  weights: './weights/adni/sota/2023_08_25_01_16_09_265513/latest_model.pt'
+  weights: './weights/adni_adv_last_2_heads/sota/2023_10_26_21_16_03_735254/latest_model.pt'
 #
 device: gpu
 configurator:
@@ -27,16 +27,14 @@ model:
     in_channels: 1
     nr_ref_channels: 3
     channels:
-#      - 16
       - 32
       - 64
       - 128
       - 256
       - 512
-      - 1024
- # #    - 1024
+     # - 1024
     strides:
-      - 2
+    #  - 2
       - 2
       - 2
       - 2
@@ -46,31 +44,31 @@ model:
     kernel_size: 3
     norm: nos
     act: relu
-    deconv_mode: transpose
+    deconv_mode: stride_upsample
 #
 # Trainer
 #
 trainer:
-  module_name: projects.ano_brain.MorphTrainer_3D
+  module_name: projects.ano_brain.MorphTrainer_3D_adv_2_heads_new2
   class_name: PTrainer
   params:
     input_size: *target_size
     checkpoint_path: *checkpoint_path
-    nr_epochs: 360
+    nr_epochs: 300
     max_iter: 100
     loss:
       module_name: optim.losses.ln_losses
       class_name: L2
       params:
-    patience: 50
+    patience: 130
     alfa: 0.001
-    beta: 1
-    gamma: 1
+    beta: 0.1
+    gamma: 0.01
     # Optimizer
     # Optimizer
     optimizer_params:
 #      lr: 1.0e-4 # Orig
-      lr: 1.0e-4
+      lr: 5.0e-4
   # Data Loader
   data_loader:
 # IXI-T1
@@ -79,7 +77,7 @@ trainer:
     params:
       args:
         dataset_module:
-          module_name: data.brain3D_loader
+          module_name: data.brain3D_loader_adv
           class_name: Brain3DLoader
         data_dir:
           train:
@@ -159,7 +157,8 @@ downstream_tasks:
           global_detection3:
             data_dir:
               test:
-                - './data/ADNI/MCI_Siem_3T_WW.csv'        
+                - './data/ADNI/MCI_Siem_3T_WW.csv'                              
+
 #
 # downstream_tasks:
 #   detection:

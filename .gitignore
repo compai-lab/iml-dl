@@ -3,7 +3,5 @@ data*
 wandb*
 */__pycache__
 */**/__pycache__
-D:\COMPAI\iml-dl\data
-.\data
-./data
 *.pt
+results*

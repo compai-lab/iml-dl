@@ -1,14 +1,14 @@
-name: c_6_b_1_a_0.005_c_32_imagenet_new_augs_
-target_size: &target_size !!python/tuple [128, 128, 128]
+name: ae_kl
+target_size: &target_size !!python/tuple [88, 120, 128]
 dbatch_size: &dbatch_size 1
-checkpoint_path: &checkpoint_path ./weights/adni/sota/
+checkpoint_path: &checkpoint_path ./weights/brain_3D/sota/
 #
 # Experiment
 #
-experiment:
-  name: Morphaeus_3D_ADNI_mixeddata
-  task: test
-  weights: './weights/adni/sota/2023_08_25_01_16_09_265513/latest_model.pt'
+experiment: 
+  name: Morphaeus_3D_ADNI_mixeddata_adv_loss_last
+  task: train
+  weights: #'./weights/brain_3D/sota/2023_10_16_11_56_15_283413/best_model.pt'
 #
 device: gpu
 configurator:
@@ -19,54 +19,40 @@ configurator:
 # Model
 #
 model:
-  module_name: model_zoo.morphaeus_3D
-  class_name: MorphAEus
+  module_name: model_zoo.autoencoder_kl
+  class_name: AutoencoderKL
   params:
-    inshape: *target_size
-    bidir: True
+    spatial_dims: 3
     in_channels: 1
-    nr_ref_channels: 3
-    channels:
-#      - 16
+    out_channels: 1
+    num_channels:
       - 32
       - 64
-      - 128
-      - 256
-      - 512
-      - 1024
- # #    - 1024
-    strides:
-      - 2
-      - 2
-      - 2
-      - 2
-      - 2
-      - 2
-    out_ch: 1
-    kernel_size: 3
-    norm: nos
-    act: relu
-    deconv_mode: transpose
+      - 64
+    latent_channels: 3
+    num_res_blocks: 1
+    norm_num_groups: 16
+    attention_levels:
+      - False
+      - False
+      - False
 #
 # Trainer
 #
 trainer:
-  module_name: projects.ano_brain.MorphTrainer_3D
+  module_name: projects.ano_brain.AEKLTrainer
   class_name: PTrainer
   params:
     input_size: *target_size
     checkpoint_path: *checkpoint_path
-    nr_epochs: 360
-    max_iter: 100
+    nr_epochs: 5000
+    patience: 500
+    # Loss
     loss:
       module_name: optim.losses.ln_losses
-      class_name: L2
+      class_name: L1
       params:
-    patience: 50
-    alfa: 0.001
-    beta: 1
-    gamma: 1
-    # Optimizer
+#    patience: 5  # Orig
     # Optimizer
     optimizer_params:
 #      lr: 1.0e-4 # Orig
@@ -79,7 +65,7 @@ trainer:
     params:
       args:
         dataset_module:
-          module_name: data.brain3D_loader
+          module_name: data.loaders.brain3D_loader_ae_kl
           class_name: Brain3DLoader
         data_dir:
           train:
@@ -100,7 +86,7 @@ trainer:
 # Downstream tasks
 downstream_tasks:
     detection:
-      module_name: projects.ano_brain.DownstreamEvaluator
+      module_name: projects.ano_brain.DownstreamEvaluator_aekl
       class_name: PDownstreamEvaluator
       checkpoint_path: *checkpoint_path
       global_detection: True
@@ -121,7 +107,7 @@ downstream_tasks:
                 - './data/ADNI/AD_Siem_3T_WW.csv'
  
     detection2:
-      module_name: projects.ano_brain.DownstreamEvaluator
+      module_name: projects.ano_brain.DownstreamEvaluator_aekl
       class_name: PDownstreamEvaluator
       checkpoint_path: *checkpoint_path
       global_detection2: True
@@ -141,7 +127,7 @@ downstream_tasks:
               test:
                 - './data/ADNI/cn_siem_3T_ww_test_registered.csv'      
     detection3:
-      module_name: projects.ano_brain.DownstreamEvaluator
+      module_name: projects.ano_brain.DownstreamEvaluator_aekl
       class_name: PDownstreamEvaluator
       checkpoint_path: *checkpoint_path
       global_detection2: True
@@ -159,33 +145,4 @@ downstream_tasks:
           global_detection3:
             data_dir:
               test:
-                - './data/ADNI/MCI_Siem_3T_WW.csv'        
-#
-# downstream_tasks:
-#   detection:
-#     module_name: projects.ano_brain.DownstreamEvaluator
-#     class_name: PDownstreamEvaluator
-#     checkpoint_path: *checkpoint_path
-#     data_loader:
-#       module_name: core.DataLoader
-#       class_name: DefaultDataLoader
-#       params:
-#         args:
-#           target_size: *target_size
-#           batch_size: *dbatch_size
-#           dataset_module:
-#             module_name: data.loaders.fastmri_loader
-#             class_name: FastLoader
-#       datasets:
-#         Normal_brain:
-#           data_dir:
-#             test:
-#               - './data/fastMRI/splits/normal_test.csv'
-#         global:
-#           data_dir:
-#             test:
-#               - './data/fastMRI/splits/global.csv'
-#         local:
-#           data_dir:
-#             test:
-#               - './data/fastMRI/splits/local.csv'
+                - './data/ADNI/MCI_Siem_3T_WW.csv'                              

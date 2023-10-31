@@ -25,7 +25,7 @@ class Encoder(nn.Sequential):
         encoder_channels = copy(channels)
         encoder_channels.append(channels[-1])
         for i, (c, s) in enumerate(zip(encoder_channels, strides)):
-            stride = 1 if deconv_mode == 'upsample' else s
+            stride = 1 if deconv_mode == 'stride_upsample' else s
             self.add_module(name_prefix + "_encode_%i" % i,
                             nn.Conv3d(in_channels=layer_channels, out_channels=c, kernel_size=kernel_size,
                                       stride=stride, padding=padding))#, dilation=(1,1), groups=1))
@@ -37,9 +37,9 @@ class Encoder(nn.Sequential):
                 self.add_module(name_prefix + "_act_%i" % i, nn.LeakyReLU(True))
             else:
                 self.add_module(name_prefix + "_act_%i" % i, CustomSwish())
-            if deconv_mode == 'upsample':
+            if deconv_mode == 'stride_upsample' and i!=len(channels)-1:
                 self.add_module(name_prefix + "_max_pool%i" % i,
-                                torch.nn.MaxPool3d(kernel_size=kernel_size, stride=s, padding=padding, return_indices=True))
+                                torch.nn.MaxPool3d(kernel_size=kernel_size, stride=s, padding=padding))
             layer_channels = c
 
 
@@ -75,7 +75,17 @@ class Decoder(nn.Sequential):
                 lr += 1
                 layer_channels = layer_channels + channels[-i-1]
 
-            if  deconv_mode == 'stride':
+            if  deconv_mode == 'stride_upsample' and i!=0:
+                self.add_module(name_prefix + "_upsample_%i" % i, nn.Upsample(scale_factor=s, mode='nearest'))
+                self.add_module(name_prefix + "_decode_%i" % i,
+                                nn.Conv3d(in_channels=layer_channels, out_channels=c, kernel_size=kernel_size
+                                      , padding=padding))
+            elif  deconv_mode == 'stride_upsample' and i==0:
+
+                self.add_module(name_prefix + "_decode_%i" % i,
+                                nn.Conv3d(in_channels=layer_channels, out_channels=c, kernel_size=kernel_size
+                                      , padding=padding))
+            elif  deconv_mode == 'stride':
                 self.add_module(name_prefix + "_upsample_%i" % i, nn.Upsample(scale_factor=s, mode='nearest'))
                 self.add_module(name_prefix + "_decode_%i" % i,
                                 nn.Conv3d(in_channels=layer_channels, out_channels=c, kernel_size=kernel_size

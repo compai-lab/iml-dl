@@ -96,8 +96,8 @@ class DefaultDataset(Dataset):
         return default_t
 
     def get_label_transform_test(self):
-        default_t = transforms.Compose([ReadImage(), To01(), AddChannelIfNeeded(),
-                                        AssertChannelFirst(), transforms.Resize(self.target_size)])
+        default_t = transforms.Compose([ReadImage(), AddChannelIfNeeded(),
+                                        AssertChannelFirst()])
         return default_t
 
     def get_label(self, idx):

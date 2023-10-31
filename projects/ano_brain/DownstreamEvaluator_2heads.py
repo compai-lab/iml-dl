@@ -57,7 +57,7 @@ class PDownstreamEvaluator(DownstreamEvaluator):
         self.l_pips_sq = lpips.LPIPS(pretrained=True, net='squeeze', use_dropout=True, eval_mode=True, spatial=True, lpips=True).to(self.device)
         self.l_cos = CosineSimLoss(device='cuda')
         self.l_ncc = NCC(win=[9, 9])
-        self.experiment="b1_from_scratch"
+        self.experiment="b_10_b_1_b01"
         # self.l_pips_vgg = lpips.LPIPS(pretrained=True, net='vgg', use_dropout=False, eval_mode=False, spatial=False, lpips=True).to(self.device)
         # self.l_pips_alex = lpips.LPIPS(pretrained=True, net='alex', use_dropout=False, eval_mode=False, spatial=False, lpips=True).to(self.device)
 
@@ -114,20 +114,18 @@ class PDownstreamEvaluator(DownstreamEvaluator):
         loss_mse_array=np.array(loss_mse_array)
         loss_rec_array=[]
         loss_rec_array=np.array(loss_rec_array)
-        
+        loss_rec_array_b1=[]
+        loss_rec_array_b1=np.array(loss_rec_array_b1)
+        loss_rec_array_b01=[]
+        loss_rec_array_b01=np.array(loss_rec_array_b01)                
         stdlogjacdet_array=[]
         stdlogjacdet_array=np.array(stdlogjacdet_array)
+        stdlogjacdet_array_b1=[]
+        stdlogjacdet_array_b1=np.array(stdlogjacdet_array_b1)        
+        stdlogjacdet_array_b01=[]
+        stdlogjacdet_array_b01=np.array(stdlogjacdet_array_b01)        
         meanjacdet_array=[]
         meanjacdet_array=np.array(meanjacdet_array)
-
-        loss_jacdet_array=[]
-        loss_jacdet_array=np.array(loss_jacdet_array)
-        loss_logjacdet_array=[]
-        loss_logjacdet_array=np.array(loss_logjacdet_array)
-        norm_loss_jacdet_array=[]
-        norm_loss_jacdet_array=np.array(norm_loss_jacdet_array)
-        norm_loss_logjacdet_array=[]
-        norm_loss_logjacdet_array=np.array(norm_loss_logjacdet_array)
         kk=0
         for dataset_key in self.test_data_dict.keys():
 
@@ -164,29 +162,48 @@ class PDownstreamEvaluator(DownstreamEvaluator):
                 mean= log_jac_det.mean()
                 stdlogjacdet_array= np.append(stdlogjacdet_array,single_value)
                 meanjacdet_array= np.append(meanjacdet_array,mean)
-                loss=np.abs(x_rec.detach().cpu()[0].numpy()-x.detach().cpu()[0].numpy())
-                np.save("./results/"+self.experiment+"/alzheimer_loss"+str(idx)+".npy", loss, allow_pickle=True, fix_imports=True)
-                np.save("./results/"+self.experiment+"/alzheimer_jacdet"+str(idx)+".npy", jacdet, allow_pickle=True, fix_imports=True)
-                loss=loss*100
-                loss_norm = (loss-np.min(loss))/(np.max(loss)-np.min(loss))
-                jacdet_norm = (jacdet-np.min(jacdet))/(np.max(jacdet)-np.min(jacdet))
-                log_jac_det_norm=(log_jac_det-np.min(log_jac_det))/(np.max(log_jac_det)-np.min(log_jac_det))
 
-                data1=(loss*np.abs(jacdet)).mean()
-                data2=(loss*np.abs(log_jac_det)).mean()
-                data3=(loss_norm*jacdet_norm).mean()
-                data4=(loss_norm*log_jac_det_norm).mean()
-                
-                loss_jacdet_array=np.append(loss_jacdet_array,data1)
-                loss_logjacdet_array=np.append(loss_logjacdet_array,data2)
-                norm_loss_jacdet_array=np.append(norm_loss_jacdet_array,data3)
-                norm_loss_logjacdet_array=np.append(norm_loss_logjacdet_array,data4)
+                    # heads #
 
+                imagess = data[0].to(self.device)
+                transformed_imagess = imagess
+                encode_historyy = [x.detach().clone() for x in x_rec_dict['encode_history']]
+                    
+                decode_historyy = [x.detach().clone() for x in x_rec_dict['decode_history']]
+                gl_priorr = x_rec_dict['x_prior'].detach().clone()
+                reconstruction_b1,result_dict_b1= self.model.forward_b1(transformed_imagess,gl_priorr,encode_historyy,decode_historyy,False)
+                deformation_b1 = result_dict_b1['deformation']
+                reversed_b1 = result_dict_b1['x_reversed']
 
+                reconstruction_b01,result_dict_b01= self.model.forward_b01(transformed_imagess,gl_priorr,encode_historyy,decode_historyy,False)
+                deformation_b01 = result_dict_b01['deformation']
+                reversed_b01 = result_dict_b01['x_reversed']
+                loss_mse_b1 = self.criterion_MSE(reconstruction_b1, x)
+                loss_rec_array_b1= np.append(loss_rec_array_b1,loss_mse_b1.detach().cpu().numpy())
+                loss_mse_b01 = self.criterion_MSE(reconstruction_b01, x)
+                loss_rec_array_b01= np.append(loss_rec_array_b01,loss_mse_b01.detach().cpu().numpy())    
+
+                _,_,perc_neg_jac_det,jacdet=jacobian_determinant(deformation_b1.cpu().detach().numpy(),x_rec.cpu().detach().numpy())
+                jacdet_def = (jacdet + 3).clip(1e-10,1e10)
+                log_jac_det = np.log(jacdet_def)
+                single_value = log_jac_det.std()
+                mean= log_jac_det.mean()
+                stdlogjacdet_array_b1= np.append(stdlogjacdet_array_b1,single_value)
+
+                _,_,perc_neg_jac_det,jacdet=jacobian_determinant(deformation_b01.cpu().detach().numpy(),x_rec.cpu().detach().numpy())
+                jacdet_def = (jacdet + 3).clip(1e-10,1e10)
+                log_jac_det = np.log(jacdet_def)
+                single_value = log_jac_det.std()
+                mean= log_jac_det.mean()
+                stdlogjacdet_array_b01= np.append(stdlogjacdet_array_b01,single_value)            
                 w=116
                 if idx%260==0:
                     rec_nifti = nib.Nifti1Image(np.squeeze(x_rec.detach().cpu()[0].numpy()) , np.eye(4))
                     nib.save(rec_nifti, './results/'+self.experiment+'/test_a_'+str(idx)+'_rec.nii.gz')
+                    rec2_nifti = nib.Nifti1Image(np.squeeze(reconstruction_b1.detach().cpu()[0].numpy()) , np.eye(4))
+                    nib.save(rec2_nifti, './results/'+self.experiment+'/test_a_'+str(idx)+'_rec_b1.nii.gz')
+                    rec3_nifti = nib.Nifti1Image(np.squeeze(reconstruction_b01.detach().cpu()[0].numpy()) , np.eye(4))
+                    nib.save(rec3_nifti, './results/'+self.experiment+'/test_a_'+str(idx)+'_rec_b01.nii.gz')
                     gl_prior_nifti = nib.Nifti1Image(np.squeeze(x_.detach().cpu()[0].numpy()) , np.eye(4))
                     nib.save(gl_prior_nifti, './results/'+self.experiment+'/test_a_'+str(idx)+'_gl_prior.nii.gz')
                     x_nifti = nib.Nifti1Image(np.squeeze(x.detach().cpu()[0].numpy()) , np.eye(4))
@@ -231,8 +248,8 @@ class PDownstreamEvaluator(DownstreamEvaluator):
                         # print(f'rec: {np.min(rec)}, {np.max(rec)}')
             
                     
-                    elements = [img,global_prior, rec,np.abs(global_prior-img), np.abs(rec - img),loss*np.abs(jacdet),loss*np.abs(log_jac_det),loss_norm*jacdet_norm,loss_norm*log_jac_det_norm,jacdet,deff]
-                    v_maxs = [1, 1, 1,0.5,0.5,0.5,0.5,0.5,0.5,0.5,0.5]
+                    elements = [img,global_prior, rec,np.abs(global_prior-img), np.abs(rec - img),jacdet_def,deff]
+                    v_maxs = [1, 1, 1,0.5,0.5,0.5,0.5]
                     diffp, axarr = plt.subplots(3, len(elements), gridspec_kw={'wspace': 0, 'hspace': 0})
                     diffp.set_size_inches(len(elements) * 4, 3 * 4)
                     for i in range(len(elements)):
@@ -298,12 +315,10 @@ class PDownstreamEvaluator(DownstreamEvaluator):
         np.save("./results/"+self.experiment+"/alzheimer_loss_prior.npy", loss_rec_array, allow_pickle=True, fix_imports=True)
         np.save("./results/"+self.experiment+"/alzheimer_stdlogjacdet_array.npy", stdlogjacdet_array, allow_pickle=True, fix_imports=True)
         np.save("./results/"+self.experiment+"/alzheimer_meanjacdet_array.npy", meanjacdet_array, allow_pickle=True, fix_imports=True)
-
-        np.save("./results/"+self.experiment+"/alzheimer_loss_jacdet.npy", loss_jacdet_array, allow_pickle=True, fix_imports=True)
-        np.save("./results/"+self.experiment+"/alzheimer_loss_logjacdet.npy", loss_logjacdet_array, allow_pickle=True, fix_imports=True)
-        np.save("./results/"+self.experiment+"/alzheimer_norm_loss_jacdet_array.npy", norm_loss_jacdet_array, allow_pickle=True, fix_imports=True)
-        np.save("./results/"+self.experiment+"/alzheimer_norm_loss_logjacdet_array.npy", norm_loss_logjacdet_array, allow_pickle=True, fix_imports=True)
-
+        np.save("./results/"+self.experiment+"/alzheimer_loss_morphed_b1.npy", loss_rec_array_b1, allow_pickle=True, fix_imports=True)
+        np.save("./results/"+self.experiment+"/alzheimer_loss_morphed_b01.npy", loss_rec_array_b01, allow_pickle=True, fix_imports=True)   
+        np.save("./results/"+self.experiment+"/alzheimer_stdlogjacdet_array_b1.npy", stdlogjacdet_array_b1, allow_pickle=True, fix_imports=True)
+        np.save("./results/"+self.experiment+"/alzheimer_stdlogjacdet_array_b01.npy", stdlogjacdet_array_b01, allow_pickle=True, fix_imports=True)          
     def global_detection2(self, global_model):
         """
         Validation of downstream tasks
@@ -326,19 +341,18 @@ class PDownstreamEvaluator(DownstreamEvaluator):
         loss_mse_array=np.array(loss_mse_array)
         loss_rec_array=[]
         loss_rec_array=np.array(loss_rec_array)
+        loss_rec_array_b1=[]
+        loss_rec_array_b1=np.array(loss_rec_array_b1)
+        loss_rec_array_b01=[]
+        loss_rec_array_b01=np.array(loss_rec_array_b01)                
         stdlogjacdet_array=[]
         stdlogjacdet_array=np.array(stdlogjacdet_array)
+        stdlogjacdet_array_b1=[]
+        stdlogjacdet_array_b1=np.array(stdlogjacdet_array_b1)        
+        stdlogjacdet_array_b01=[]
+        stdlogjacdet_array_b01=np.array(stdlogjacdet_array_b01)        
         meanjacdet_array=[]
         meanjacdet_array=np.array(meanjacdet_array)
-        
-        loss_jacdet_array=[]
-        loss_jacdet_array=np.array(loss_jacdet_array)
-        loss_logjacdet_array=[]
-        loss_logjacdet_array=np.array(loss_logjacdet_array)
-        norm_loss_jacdet_array=[]
-        norm_loss_jacdet_array=np.array(norm_loss_jacdet_array)
-        norm_loss_logjacdet_array=[]
-        norm_loss_logjacdet_array=np.array(norm_loss_logjacdet_array)
         kk=0
         for dataset_key in self.test_data_dict.keys():
 
@@ -378,26 +392,40 @@ class PDownstreamEvaluator(DownstreamEvaluator):
                 mean=log_jac_det.mean()
                 meanjacdet_array= np.append(meanjacdet_array,mean)
                 stdlogjacdet_array= np.append(stdlogjacdet_array,single_value)
+                    # heads #
 
+                imagess = data[0].to(self.device)
+                transformed_imagess =  imagess
+                encode_historyy = [x.detach().clone() for x in x_rec_dict['encode_history']]
+                    
+                decode_historyy = [x.detach().clone() for x in x_rec_dict['decode_history']]
+                gl_priorr = x_rec_dict['x_prior'].detach().clone()
+                reconstruction_b1,result_dict_b1= self.model.forward_b1(transformed_imagess,gl_priorr,encode_historyy,decode_historyy,False)
+                deformation_b1 = result_dict_b1['deformation']
+                reversed_b1 = result_dict_b1['x_reversed']
 
-                loss=np.abs(x_rec.detach().cpu()[0].numpy()-x.detach().cpu()[0].numpy())
-                np.save("./results/"+self.experiment+"/healthy_loss"+str(idx)+".npy", loss, allow_pickle=True, fix_imports=True)
-                np.save("./results/"+self.experiment+"/healthy_jacdet"+str(idx)+".npy", jacdet, allow_pickle=True, fix_imports=True)
-                loss=loss*100
+                reconstruction_b01,result_dict_b01= self.model.forward_b01(transformed_imagess,gl_priorr,encode_historyy,decode_historyy,False)
+                deformation_b01 = result_dict_b01['deformation']
+                reversed_b01 = result_dict_b01['x_reversed']
+                loss_mse_b1 = self.criterion_MSE(reconstruction_b1, x)
+                loss_rec_array_b1= np.append(loss_rec_array_b1,loss_mse_b1.detach().cpu().numpy())
+                loss_mse_b01 = self.criterion_MSE(reconstruction_b01, x)
+                loss_rec_array_b01= np.append(loss_rec_array_b01,loss_mse_b1.detach().cpu().numpy())    
 
-                loss_norm = (loss-np.min(loss))/(np.max(loss)-np.min(loss))
-                jacdet_norm = (jacdet-np.min(jacdet))/(np.max(jacdet)-np.min(jacdet))
-                log_jac_det_norm=(log_jac_det-np.min(log_jac_det))/(np.max(log_jac_det)-np.min(log_jac_det))
+                _,_,perc_neg_jac_det,jacdet=jacobian_determinant(deformation_b1.cpu().detach().numpy(),x_rec.cpu().detach().numpy())
+                jacdet_def = (jacdet + 3).clip(1e-10,1e10)
+                log_jac_det = np.log(jacdet_def)
+                single_value = log_jac_det.std()
+                mean= log_jac_det.mean()
+                stdlogjacdet_array_b1= np.append(stdlogjacdet_array_b1,single_value)
 
-                data1=(loss*np.abs(jacdet)).mean()
-                data2=(loss*np.abs(log_jac_det)).mean()
-                data3=(loss_norm*jacdet_norm).mean()
-                data4=(loss_norm*log_jac_det_norm).mean()
-                
-                loss_jacdet_array=np.append(loss_jacdet_array,data1)
-                loss_logjacdet_array=np.append(loss_logjacdet_array,data2)
-                norm_loss_jacdet_array=np.append(norm_loss_jacdet_array,data3)
-                norm_loss_logjacdet_array=np.append(norm_loss_logjacdet_array,data4)
+                _,_,perc_neg_jac_det,jacdet=jacobian_determinant(deformation_b01.cpu().detach().numpy(),x_rec.cpu().detach().numpy())
+                jacdet_def = (jacdet + 3).clip(1e-10,1e10)
+                log_jac_det = np.log(jacdet_def)
+                single_value = log_jac_det.std()
+                mean= log_jac_det.mean()
+                stdlogjacdet_array_b01= np.append(stdlogjacdet_array_b01,single_value)    
+
                 if idx%260==0:
                     rec_nifti = nib.Nifti1Image(np.squeeze(x_rec.detach().cpu()[0].numpy()) , np.eye(4))
                     nib.save(rec_nifti, './results/'+self.experiment+'/test_healthy_'+str(idx)+'_rec.nii.gz')
@@ -445,8 +473,8 @@ class PDownstreamEvaluator(DownstreamEvaluator):
                         # print(f'rec: {np.min(rec)}, {np.max(rec)}')
             
             
-                    elements = [img,global_prior, rec,np.abs(global_prior-img), np.abs(rec - img),loss*np.abs(jacdet),loss*np.abs(log_jac_det),loss_norm*jacdet_norm,loss_norm*log_jac_det_norm,jacdet,deff]
-                    v_maxs = [1, 1, 1,0.5,0.5,0.5,0.5,0.5,0.5,0.5,0.5]
+                    elements = [img,global_prior, rec,np.abs(global_prior-img), np.abs(rec - img),jacdet_def,deff]
+                    v_maxs = [1, 1, 1,0.5,0.5,0.5,0.5]
                     diffp, axarr = plt.subplots(3, len(elements), gridspec_kw={'wspace': 0, 'hspace': 0})
                     diffp.set_size_inches(len(elements) * 4, 3 * 4)
                     for i in range(len(elements)):
@@ -503,11 +531,11 @@ class PDownstreamEvaluator(DownstreamEvaluator):
         np.save("./results/"+self.experiment+"/healthy_loss_prior.npy", loss_rec_array, allow_pickle=True, fix_imports=True)
         np.save("./results/"+self.experiment+"/healthy_stdlogjacdet.npy", stdlogjacdet_array, allow_pickle=True, fix_imports=True)
         np.save("./results/"+self.experiment+"/healthy_meanjacdet.npy", meanjacdet_array, allow_pickle=True, fix_imports=True)
+        np.save("./results/"+self.experiment+"/healthy_loss_morphed_b1.npy", loss_rec_array_b1, allow_pickle=True, fix_imports=True)
+        np.save("./results/"+self.experiment+"/healthy_loss_morphed_b01.npy", loss_rec_array_b01, allow_pickle=True, fix_imports=True)    
+        np.save("./results/"+self.experiment+"/healthy_stdlogjacdet_b1.npy", stdlogjacdet_array_b1, allow_pickle=True, fix_imports=True)
+        np.save("./results/"+self.experiment+"/healthy_stdlogjacdet_b01.npy", stdlogjacdet_array_b01, allow_pickle=True, fix_imports=True)    
 
-        np.save("./results/"+self.experiment+"/healthy_loss_jacdet.npy", loss_jacdet_array, allow_pickle=True, fix_imports=True)
-        np.save("./results/"+self.experiment+"/healthy_loss_logjacdet.npy", loss_logjacdet_array, allow_pickle=True, fix_imports=True)
-        np.save("./results/"+self.experiment+"/healthy_norm_loss_jacdet_array.npy", norm_loss_jacdet_array, allow_pickle=True, fix_imports=True)
-        np.save("./results/"+self.experiment+"/healthy_norm_loss_logjacdet_array.npy", norm_loss_logjacdet_array, allow_pickle=True, fix_imports=True)
     def global_detection3(self, global_model):
         """
         Validation of downstream tasks
@@ -530,20 +558,18 @@ class PDownstreamEvaluator(DownstreamEvaluator):
         loss_mse_array=np.array(loss_mse_array)
         loss_rec_array=[]
         loss_rec_array=np.array(loss_rec_array)
-        
+        loss_rec_array_b1=[]
+        loss_rec_array_b1=np.array(loss_rec_array_b1)
+        loss_rec_array_b01=[]
+        loss_rec_array_b01=np.array(loss_rec_array_b01)                
         stdlogjacdet_array=[]
         stdlogjacdet_array=np.array(stdlogjacdet_array)
+        stdlogjacdet_array_b1=[]
+        stdlogjacdet_array_b1=np.array(stdlogjacdet_array_b1)        
+        stdlogjacdet_array_b01=[]
+        stdlogjacdet_array_b01=np.array(stdlogjacdet_array_b01)        
         meanjacdet_array=[]
         meanjacdet_array=np.array(meanjacdet_array)
-
-        loss_jacdet_array=[]
-        loss_jacdet_array=np.array(loss_jacdet_array)
-        loss_logjacdet_array=[]
-        loss_logjacdet_array=np.array(loss_logjacdet_array)
-        norm_loss_jacdet_array=[]
-        norm_loss_jacdet_array=np.array(norm_loss_jacdet_array)
-        norm_loss_logjacdet_array=[]
-        norm_loss_logjacdet_array=np.array(norm_loss_logjacdet_array)
         kk=0
         for dataset_key in self.test_data_dict.keys():
 
@@ -580,23 +606,40 @@ class PDownstreamEvaluator(DownstreamEvaluator):
                 mean=log_jac_det.mean()
                 stdlogjacdet_array= np.append(stdlogjacdet_array,single_value)
                 meanjacdet_array= np.append(meanjacdet_array,mean)
+                    # heads #
 
-                loss=np.abs(x_rec.detach().cpu()[0].numpy()-x.detach().cpu()[0].numpy())
-                loss=loss*100
+                imagess = data[0].to(self.device)
+                transformed_imagess = imagess
+                encode_historyy = [x.detach().clone() for x in x_rec_dict['encode_history']]
+                    
+                decode_historyy = [x.detach().clone() for x in x_rec_dict['decode_history']]
+                gl_priorr = x_rec_dict['x_prior'].detach().clone()
+                reconstruction_b1,result_dict_b1= self.model.forward_b1(transformed_imagess,gl_priorr,encode_historyy,decode_historyy,False)
+                deformation_b1 = result_dict_b1['deformation']
+                reversed_b1 = result_dict_b1['x_reversed']
 
-                loss_norm = (loss-np.min(loss))/(np.max(loss)-np.min(loss))
-                jacdet_norm = (jacdet-np.min(jacdet))/(np.max(jacdet)-np.min(jacdet))
-                log_jac_det_norm=(log_jac_det-np.min(log_jac_det))/(np.max(log_jac_det)-np.min(log_jac_det))
+                reconstruction_b01,result_dict_b01= self.model.forward_b01(transformed_imagess,gl_priorr,encode_historyy,decode_historyy,False)
+                deformation_b01 = result_dict_b01['deformation']
+                reversed_b01 = result_dict_b01['x_reversed']
+                loss_mse_b1 = self.criterion_MSE(reconstruction_b1, x)
+                loss_rec_array_b1= np.append(loss_rec_array_b1,loss_mse_b1.detach().cpu().numpy())
+                loss_mse_b01 = self.criterion_MSE(reconstruction_b01, x)
+                loss_rec_array_b01= np.append(loss_rec_array_b01,loss_mse_b1.detach().cpu().numpy())    
 
-                data1=(loss*np.abs(jacdet)).mean()
-                data2=(loss*np.abs(log_jac_det)).mean()
-                data3=(loss_norm*jacdet_norm).mean()
-                data4=(loss_norm*log_jac_det_norm).mean()
-                
-                loss_jacdet_array=np.append(loss_jacdet_array,data1)
-                loss_logjacdet_array=np.append(loss_logjacdet_array,data2)
-                norm_loss_jacdet_array=np.append(norm_loss_jacdet_array,data3)
-                norm_loss_logjacdet_array=np.append(norm_loss_logjacdet_array,data4)
+                _,_,perc_neg_jac_det,jacdet=jacobian_determinant(deformation_b1.cpu().detach().numpy(),x_rec.cpu().detach().numpy())
+                jacdet_def = (jacdet + 3).clip(1e-10,1e10)
+                log_jac_det = np.log(jacdet_def)
+                single_value = log_jac_det.std()
+                mean= log_jac_det.mean()
+                stdlogjacdet_array_b1= np.append(stdlogjacdet_array_b1,single_value)
+
+                _,_,perc_neg_jac_det,jacdet=jacobian_determinant(deformation_b01.cpu().detach().numpy(),x_rec.cpu().detach().numpy())
+                jacdet_def = (jacdet + 3).clip(1e-10,1e10)
+                log_jac_det = np.log(jacdet_def)
+                single_value = log_jac_det.std()
+                mean= log_jac_det.mean()
+                stdlogjacdet_array_b01= np.append(stdlogjacdet_array_b01,single_value)    
+
                 if idx%260==0:
                     rec_nifti = nib.Nifti1Image(np.squeeze(x_rec.detach().cpu()[0].numpy()) , np.eye(4))
                     nib.save(rec_nifti, './results/'+self.experiment+'/test_mci_'+str(idx)+'_rec.nii.gz')
@@ -644,8 +687,8 @@ class PDownstreamEvaluator(DownstreamEvaluator):
                         # print(f'rec: {np.min(rec)}, {np.max(rec)}')
             
                     
-                    elements = [img,global_prior, rec,np.abs(global_prior-img), np.abs(rec - img),loss*np.abs(jacdet),loss*np.abs(log_jac_det),loss_norm*jacdet_norm,loss_norm*log_jac_det_norm,jacdet,deff]
-                    v_maxs = [1, 1, 1,0.5,0.5,0.5,0.5,0.5,0.5,0.5,0.5]
+                    elements = [img,global_prior, rec,np.abs(global_prior-img), np.abs(rec - img),jacdet_def,deff]
+                    v_maxs = [1, 1, 1,0.5,0.5,0.5,0.5]
                     diffp, axarr = plt.subplots(3, len(elements), gridspec_kw={'wspace': 0, 'hspace': 0})
                     diffp.set_size_inches(len(elements) * 4, 3 * 4)
                     for i in range(len(elements)):
@@ -702,11 +745,11 @@ class PDownstreamEvaluator(DownstreamEvaluator):
         np.save("./results/"+self.experiment+"/mci_loss_prior.npy", loss_rec_array, allow_pickle=True, fix_imports=True)
         np.save("./results/"+self.experiment+"/mci_stdlogjacdet_array.npy", stdlogjacdet_array, allow_pickle=True, fix_imports=True)
         np.save("./results/"+self.experiment+"/mci_meanjacdet_array.npy", meanjacdet_array, allow_pickle=True, fix_imports=True)
-        np.save("./results/"+self.experiment+"/mci_loss_jacdet.npy", loss_jacdet_array, allow_pickle=True, fix_imports=True)
-        np.save("./results/"+self.experiment+"/mci_loss_logjacdet.npy", loss_logjacdet_array, allow_pickle=True, fix_imports=True)
-        np.save("./results/"+self.experiment+"/mci_norm_loss_jacdet_array.npy", norm_loss_jacdet_array, allow_pickle=True, fix_imports=True)
-        np.save("./results/"+self.experiment+"/mci_norm_loss_logjacdet_array.npy", norm_loss_logjacdet_array, allow_pickle=True, fix_imports=True)
-        plot_roc_curve(self.experiment,True)
+        np.save("./results/"+self.experiment+"/mci_loss_morphed_b1.npy", loss_rec_array_b1, allow_pickle=True, fix_imports=True)
+        np.save("./results/"+self.experiment+"/mci_loss_morphed_b01.npy", loss_rec_array_b01, allow_pickle=True, fix_imports=True)    
+        np.save("./results/"+self.experiment+"/mci_stdlogjacdet_b1.npy", stdlogjacdet_array_b1, allow_pickle=True, fix_imports=True)
+        np.save("./results/"+self.experiment+"/mci_stdlogjacdet_b01.npy", stdlogjacdet_array_b01, allow_pickle=True, fix_imports=True)      
+        plot_roc_curve_2heads(self.experiment,True)
 
         # if self.compute_scores:
         #     normal_key = 'Normal'

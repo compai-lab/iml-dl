@@ -82,7 +82,12 @@ class DLConfigurator(object):
                                        **dst_config['params'])
             else:
                 dst = downstream_class(dst_name, self.model, self.device, data, dst_config['checkpoint_path'])
-            dst.start_task(global_model=global_model)
+            if idx==0:
+                dst.global_detection(global_model=global_model)
+            elif idx==1:
+                dst.global_detection2(global_model=global_model)
+            elif idx==2:
+                dst.global_detection3(global_model=global_model)
             logging.info("[Configurator::eval]: ################ Finished downstream task nr. {}/{} ################"
                          .format(idx, nr_tasks))
 

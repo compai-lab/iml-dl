@@ -1,14 +1,14 @@
-name: c_6_b_1_a_0.005_c_32_imagenet_new_augs_
+name: c_5_b_1_g_0.01_c_32_stride_nearest
 target_size: &target_size !!python/tuple [128, 128, 128]
 dbatch_size: &dbatch_size 1
-checkpoint_path: &checkpoint_path ./weights/adni/sota/
+checkpoint_path: &checkpoint_path ./weights/adni_adv/sota/
 #
 # Experiment
 #
 experiment:
-  name: Morphaeus_3D_ADNI_mixeddata
+  name: Morphaeus_3D_ADNI_mixeddata_adv_loss
   task: test
-  weights: './weights/adni/sota/2023_08_25_01_16_09_265513/latest_model.pt'
+  weights: './weights/adni_adv/sota/2023_09_19_10_44_13_445935/latest_model.pt'
 #
 device: gpu
 configurator:
@@ -27,16 +27,14 @@ model:
     in_channels: 1
     nr_ref_channels: 3
     channels:
-#      - 16
       - 32
       - 64
       - 128
       - 256
       - 512
-      - 1024
- # #    - 1024
+     # - 1024
     strides:
-      - 2
+    #  - 2
       - 2
       - 2
       - 2
@@ -46,26 +44,26 @@ model:
     kernel_size: 3
     norm: nos
     act: relu
-    deconv_mode: transpose
+    deconv_mode: stride
 #
 # Trainer
 #
 trainer:
-  module_name: projects.ano_brain.MorphTrainer_3D
+  module_name: projects.ano_brain.MorphTrainer_3D_adv
   class_name: PTrainer
   params:
     input_size: *target_size
     checkpoint_path: *checkpoint_path
-    nr_epochs: 360
+    nr_epochs: 195
     max_iter: 100
     loss:
       module_name: optim.losses.ln_losses
       class_name: L2
       params:
-    patience: 50
+    patience: 130
     alfa: 0.001
     beta: 1
-    gamma: 1
+    gamma: 0.01
     # Optimizer
     # Optimizer
     optimizer_params:
@@ -79,7 +77,7 @@ trainer:
     params:
       args:
         dataset_module:
-          module_name: data.brain3D_loader
+          module_name: data.brain3D_loader_adv
           class_name: Brain3DLoader
         data_dir:
           train:
@@ -119,47 +117,6 @@ downstream_tasks:
             data_dir:
               test:
                 - './data/ADNI/AD_Siem_3T_WW.csv'
- 
-    detection2:
-      module_name: projects.ano_brain.DownstreamEvaluator
-      class_name: PDownstreamEvaluator
-      checkpoint_path: *checkpoint_path
-      global_detection2: True
-      data_loader:
-        module_name: core.DataLoader
-        class_name: DefaultDataLoader
-        params:
-          args:
-            target_size: *target_size
-            batch_size: *dbatch_size
-            dataset_module:
-          module_name: data.brain3D_loader
-          class_name: Brain3DLoader
-        datasets:
-          global_detection2:
-            data_dir:
-              test:
-                - './data/ADNI/cn_siem_3T_ww_test_registered.csv'      
-    detection3:
-      module_name: projects.ano_brain.DownstreamEvaluator
-      class_name: PDownstreamEvaluator
-      checkpoint_path: *checkpoint_path
-      global_detection2: True
-      data_loader:
-        module_name: core.DataLoader
-        class_name: DefaultDataLoader
-        params:
-          args:
-            target_size: *target_size
-            batch_size: *dbatch_size
-            dataset_module:
-          module_name: data.brain3D_loader
-          class_name: Brain3DLoader
-        datasets:
-          global_detection3:
-            data_dir:
-              test:
-                - './data/ADNI/MCI_Siem_3T_WW.csv'        
 #
 # downstream_tasks:
 #   detection:

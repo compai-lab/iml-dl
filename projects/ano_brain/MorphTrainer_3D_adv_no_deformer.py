@@ -63,7 +63,7 @@ class PTrainer(Trainer):
 
         if model_state is not None:
             self.model.load_state_dict(model_state)
-            checkpoint = torch.load('./weights/adni_adv_last/sota/2023_10_20_10_39_29_892634/discriminator.pt', map_location=torch.device(self.device))
+            checkpoint = torch.load('./weights/adni_adv_last/sota/2023_10_12_08_19_20_930344/discriminator.pt', map_location=torch.device(self.device))
             discriminator.load_state_dict(checkpoint['model_weights'])
             optimizer_d.load_state_dict(checkpoint['optimizer_weights'])
             epoch_adv_loss=0.25
@@ -114,15 +114,15 @@ class PTrainer(Trainer):
                 #loss_pl = self.criterion_PL(global_prior, images).mean()
                 loss_rec_after_deformation = self.criterion_rec(reconstruction, images, result_dict)
               #  loss_pl_after_deformation = self.criterion_PL(reconstruction, images).mean()
-                reg_deform = self.deform_R(deformation)
-                loss_deform = self.ncc_loss(images, reconstruction) if torch.equal(reconstruction, reversed_img) \
-                    else (self.ncc_loss(images, reconstruction) + self.ncc_loss(global_prior, reversed_img))/2
+               # reg_deform = self.deform_R(deformation)
+               # loss_deform = self.ncc_loss(images, reconstruction) if torch.equal(reconstruction, reversed_img) \
+                #    else (self.ncc_loss(images, reconstruction) + self.ncc_loss(global_prior, reversed_img))/2
                 loss_adv=self.adv_loss(logits_fake, target_is_real=True, for_discriminator=False)
 
                 loss = loss_rec  + self.gamma * loss_adv
                 #loss = loss_rec 
-                if epoch > 10:
-                   loss = loss_rec + self.delta * loss_deform + self.beta * reg_deform + self.gamma * loss_adv
+               # if epoch > 10:
+                #   loss = loss_rec + self.delta * loss_deform + self.beta * reg_deform + self.gamma * loss_adv
 
                 self.optimizer.zero_grad()
                 # Backward Pass
@@ -146,16 +146,16 @@ class PTrainer(Trainer):
                     optimizer_d.step()
                  #   print("Discriminator started training!")
 
-                _,_,perc_neg_jac_det,jacdet=jacobian_determinant(deformation.cpu().detach().numpy(),reconstruction.cpu().detach().numpy())
+               # _,_,perc_neg_jac_det,jacdet=jacobian_determinant(deformation.cpu().detach().numpy(),reconstruction.cpu().detach().numpy())
 
-                batch_perc_neg_jac_det+=perc_neg_jac_det* images.size(0)
+               # batch_perc_neg_jac_det+=perc_neg_jac_det* images.size(0)
 
                 batch_loss += loss_rec.item() * images.size(0)
                # batch_loss_pl += loss_pl.item() * images.size(0)
                 batch_loss_after_deformation += loss_rec_after_deformation.item() * images.size(0)
               # batch_loss_pl_after_deformation += loss_pl_after_deformation.item() * images.size(0)
-                batch_loss_reg += reg_deform.item() * images.size(0)
-                batch_loss_deform += loss_deform.item() * images.size(0)
+               # batch_loss_reg += reg_deform.item() * images.size(0)
+               # batch_loss_deform += loss_deform.item() * images.size(0)
                 batch_adv_loss += loss_adv.item() * images.size(0)
                 batch_disc_loss += loss_d.item() * images.size(0)
               #  print("Train " +str(loss_pl))
@@ -205,13 +205,13 @@ class PTrainer(Trainer):
            # deff=rec_
             deff = deformation[0,:,:,:,:].detach().cpu().numpy()
             # print(f'rec: {np.min(rec)}, {np.max(rec)}')
-            elements = [img,gl_prior, rec_,np.abs(gl_prior-img), np.abs(rec_ - img),jacdet,deff]
+            elements = [img,gl_prior, rec_,np.abs(gl_prior-img), np.abs(rec_ - img),deff]
             v_maxs = [1, 1, 1,0.5,0.5,0.5,0.5]
             diffp, axarr = plt.subplots(3, len(elements), gridspec_kw={'wspace': 0, 'hspace': 0})
             diffp.set_size_inches(len(elements) * 4, 3 * 4)
             for i in range(len(elements)):
                 for axis in range(3):
-                    if i<=len(elements)-2:
+                    if i<=len(elements)-1:
                         axarr[axis, i].axis('off')
                         v_max = v_maxs[i]
                         c_map = 'gray' if v_max == 1 else 'plasma'
@@ -224,30 +224,7 @@ class PTrainer(Trainer):
                             el = np.squeeze(elements[i])[:, :, int(w / 2)]
 
                         axarr[axis, i].imshow(np.squeeze(el).T, vmin=0, vmax=v_max, cmap=c_map, origin='lower')
-                        
-                    elif i==len(elements)-1:
-                        
-                        if axis == 0:
-                            temp=np.concatenate((np.rot90(elements[i][np.newaxis,2, int(w / 2),:,:],axes=(1,2)), np.rot90(elements[i][np.newaxis,1, int(w / 2),:,:],axes=(1,2))), 0)
-                            plot_warped_grid(ax=axarr[axis, i],disp=temp) # .rot90(axes=(2,3)
-                        elif axis == 1:
-                            temp=np.concatenate((np.rot90(elements[i][np.newaxis,2, :, int(w / 2),:],axes=(1,2)), np.rot90(elements[i][np.newaxis,0, :, int(w / 2),:],axes=(1,2))), 0)
-                            plot_warped_grid(ax=axarr[axis, i],disp=temp)
-                        else:
-                            temp=np.concatenate((np.rot90(elements[i][np.newaxis,1, :,:, int(w / 2)],axes=(1,2)), np.rot90(elements[i][np.newaxis,0, :,:, int(w / 2)],axes=(1,2))), 0)
-                            plot_warped_grid(ax=axarr[axis, i],disp=temp)
-                    elif i==len(elements)-2:    
-                        axarr[axis, i].axis('off')
-                        v_max = v_maxs[i]
-                        c_map = 'bwr'
-                        # print(elements[i].shape)
-                        if axis == 0:
-                            el = np.squeeze(elements[i])[int(w / 2), :, :]
-                        elif axis == 1:
-                            el = np.squeeze(elements[i])[:, int(w / 2), :]
-                        else:
-                            el = np.squeeze(elements[i])[:, :, int(w / 2)] 
-                        axarr[axis, i].imshow(np.squeeze(el).T, cmap=c_map, norm = MidpointNormalize(midpoint=0))
+
      
             wandb.log({'Train/Example_': [
                 wandb.Image(diffp, caption="Iteration_" + str(epoch))]})
@@ -314,14 +291,14 @@ class PTrainer(Trainer):
                     # deff=rec_
                     deff = deformation[0,:,:,:,:].detach().cpu().numpy()
                     # print(f'rec: {np.min(rec)}, {np.max(rec)}')
-                    _,_,perc_neg_jac_det,jacdet=jacobian_determinant(deformation.cpu().detach().numpy(),x_rec.detach().cpu().numpy())        
-                    elements = [img,gl_prior, rec_,np.abs(gl_prior-img), np.abs(rec_ - img),jacdet,deff]
+                   # _,_,perc_neg_jac_det,jacdet=jacobian_determinant(deformation.cpu().detach().numpy(),x_rec.detach().cpu().numpy())        
+                    elements = [img,gl_prior, rec_,np.abs(gl_prior-img), np.abs(rec_ - img) ,deff]
                     v_maxs = [1, 1, 1,0.5,0.5,0.5,0.5]
                     diffp, axarr = plt.subplots(3, len(elements), gridspec_kw={'wspace': 0, 'hspace': 0})
                     diffp.set_size_inches(len(elements) * 4, 3 * 4)
                     for i in range(len(elements)):
                         for axis in range(3):
-                            if i<=len(elements)-2:
+                            if i<=len(elements)-1:
                                 axarr[axis, i].axis('off')
                                 v_max = v_maxs[i]
                                 c_map = 'gray' if v_max == 1 else 'plasma'
@@ -335,29 +312,7 @@ class PTrainer(Trainer):
 
                                 axarr[axis, i].imshow(np.squeeze(el).T, vmin=0, vmax=v_max, cmap=c_map, origin='lower')
                                 
-                            elif i==len(elements)-1:
-                                
-                                if axis == 0:
-                                    temp=np.concatenate((np.rot90(elements[i][np.newaxis,2, int(w / 2),:,:],axes=(1,2)), np.rot90(elements[i][np.newaxis,1, int(w / 2),:,:],axes=(1,2))), 0)
-                                    plot_warped_grid(ax=axarr[axis, i],disp=temp) # .rot90(axes=(2,3)
-                                elif axis == 1:
-                                    temp=np.concatenate((np.rot90(elements[i][np.newaxis,2, :, int(w / 2),:],axes=(1,2)), np.rot90(elements[i][np.newaxis,0, :, int(w / 2),:],axes=(1,2))), 0)
-                                    plot_warped_grid(ax=axarr[axis, i],disp=temp)
-                                else:
-                                    temp=np.concatenate((np.rot90(elements[i][np.newaxis,1, :,:, int(w / 2)],axes=(1,2)), np.rot90(elements[i][np.newaxis,0, :,:, int(w / 2)],axes=(1,2))), 0)
-                                    plot_warped_grid(ax=axarr[axis, i],disp=temp)
-                            elif i==len(elements)-2:    
-                                axarr[axis, i].axis('off')
-                                v_max = v_maxs[i]
-                                c_map = 'bwr'
-                                # print(elements[i].shape)
-                                if axis == 0:
-                                    el = np.squeeze(elements[i])[int(w / 2), :, :]
-                                elif axis == 1:
-                                    el = np.squeeze(elements[i])[:, int(w / 2), :]
-                                else:
-                                    el = np.squeeze(elements[i])[:, :, int(w / 2)] 
-                                axarr[axis, i].imshow(np.squeeze(el).T, cmap=c_map, norm = MidpointNormalize(midpoint=0))
+
                     wandb.log({task + '/Example_': [
                             wandb.Image(diffp, caption="Iteration_" + str(epoch)+"_"+str(test_total))]})
         # if task=='Test':

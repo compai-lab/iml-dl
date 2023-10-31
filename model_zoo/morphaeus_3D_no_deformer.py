@@ -38,9 +38,7 @@ class MorphAEus(nn.Module):
         self.nr_channels = len(channels)
         ref_channels = channels[:self.nr_ref_channels+1]
 
-        self.deformer = Deformer(inshape=inshape, in_channels=in_channels, channels=ref_channels,
-                              strides=strides, kernel_size=kernel_size, norm=norm, act=act, deconv_mode=deconv_mode,
-                                name_prefix='ref_', bidir=bidir)
+
 
     def forward(self, x, registration=False):
         encode_history, decode_history = [], []
@@ -50,7 +48,7 @@ class MorphAEus(nn.Module):
             else:
                 enc_x = enc_layer(enc_x)
             if isinstance(enc_layer, nn.Conv3d):
-                if enc_x.shape[-1] != 2:
+                if enc_x.shape[-1] != 4:
                     encode_history.insert(0, enc_x)
         for i_d, dec_layer in enumerate(self.decoder):
             if i_d == 0:
@@ -62,11 +60,11 @@ class MorphAEus(nn.Module):
                         encode_history[len(decode_history)].shape[-1] == dec_x.shape[-1]:
                     decode_history.append(dec_x)
 
-        y_source, y_target, preint_flow, pos_flow = self.deformer(x, dec_x, encode_history, decode_history, registration)
+        #y_source, y_target, preint_flow, pos_flow = self.deformer(x, dec_x, encode_history, decode_history, registration)
         # return non-integrated flow field if training
         if not registration:
-            return y_source, {'deformation': preint_flow, 'x_prior': dec_x, 'x_reversed': y_target, 'embeddings': encode_history}
+            return dec_x, {'deformation': dec_x, 'x_prior': dec_x, 'x_reversed': dec_x, 'embeddings': encode_history}
            # return  {'x_prior': dec_x, 'embeddings': encode_history}
         else:
-            return y_source, {'deformation': pos_flow, 'x_prior': dec_x, 'x_reversed': y_source, 'embeddings': encode_history}
+            return dec_x, {'deformation': dec_x, 'x_prior': dec_x, 'x_reversed': dec_x, 'embeddings': encode_history}
           #  return  {'x_prior': dec_x, 'embeddings': encode_history}
